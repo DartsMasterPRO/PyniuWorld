@@ -1758,6 +1758,30 @@ function pfInstall(){
 function pfInstallBtn(cls){const b=h('button',{class:'btn '+(cls||'teal')+' wide',onclick:pfInstall},pfStandalone()?'✅ Aplikacja zainstalowana':'📲 Zainstaluj aplikację');return b;}
 onHook('settings',box=>box.push(pfInstallBtn('teal')));
 /* ---------- strona profilu ---------- */
+/* karta gracza (profil + menu główne) */
+function pfHeroCard(i,menu){
+  pfCheck(i);const d=pfLoad(i),L=pfLevel(d.xp),a=pfNeed(L),b=pfNeed(L+1),f=pfIsF(i);
+  const nB=Object.keys(d.b).filter(k=>BADGES.some(x=>x.id===k)).length,wins=pfSum(d,g=>g.w)+pfSum(d,g=>g.bw),st=pfStreak(d.days),dls=Object.keys(d.dl).length;
+  const info=h('div',{class:'pfheroin'},
+      h('div',{class:'pfavwrap'},pfAvatar(i,menu?78:92),h('div',{class:'pflvl'},L)),
+      h('div',{class:'pfhname'},REALP[i].name),h('div',{class:'pfhtitle'},pfTitle(L,i)),
+      typeof shTitleEl==='function'?shTitleEl(i):null,
+      h('div',{class:'pfxpbar'},h('i',{style:{width:Math.min(100,(d.xp-a)/(b-a)*100)+'%'}})),
+      h('div',{class:'pfxptxt'},`Poziom ${L} · ${fmt(d.xp)} / ${fmt(b)} XP`),
+      h('div',{class:'pfcrow'},h('button',{class:'pfcoins',onclick:()=>go('sklep')},h('span',{},'🪙 '+fmt(d.c)),h('b',{},'Sklepik ›')),
+        f&&typeof shWardrobeBtn==='function'?shWardrobeBtn():null));
+  const stats=h('div',{class:'pfstats'},[['🎮',d.n,pfPlural(d.n,'gra','gry','gier')],['🏆',wins,pfPlural(wins,'wygrana','wygrane','wygranych')],['🔥',st,st===1?'dzień z rzędu':'dni z rzędu'],
+      ['⏱️',pfTime(d.t),'w grach'],['⭐',dls,pfPlural(dls,'wyzwanie','wyzwania','wyzwań')],['🏅',nB+'/'+BADGES.length,'odznak']].map(([ic,v,l])=>h('div',{class:'pfstat'},h('span',{class:'pfsi'},ic),h('b',{},v),h('span',{},l))));
+  if(menu){const card=h('div',{class:'pfhero hero pfmenu',onclick:e=>{if(e.target.closest('button,.shdog,.fig'))return;go('profil');}},
+      h('div',{class:'pfmtop'},info,h('div',{class:'pfmfig'},h('img',{class:'fig dance',src:IMG.dance,alt:''}))),stats);
+    return card;}
+  return h('div',{class:'pfhero'},
+    f?h('img',{class:'pfherofig'+(typeof shFigCls==='function'?shFigCls('hero'):''),src:pfFig('hero'),alt:''}):null,info,stats);
+}
+/* menu główne: zamiast „Pyniu / Gracz 1” – karta gracza jak w profilu (z tańczącą postacią i Świnią) */
+onHook('menu',view=>{const old=$('.hero',view);if(!old)return;const i=pfPyniu();if(i==null||!REALP[i])return;
+  old.replaceWith(pfHeroCard(i,true));
+  setTimeout(()=>{const hero=$('.pfmenu',view),box=hero&&$('.pfmfig',hero);if(!box)return;$$(':scope > .shdog',hero).forEach(dg=>box.append(dg));if(hero.classList.contains('shpet'))box.classList.add('pet');},0);});
 let pfView=null;
 const pfTime=ms=>{const m=Math.round(ms/60000);if(ms>0&&m<1)return '<1 min';return m<60?m+' min':(m/60|0)+' h '+(m%60?m%60+' min':'');};
 const pfPlural=(n,a,b,c)=>n===1?a:(n%10>=2&&n%10<=4&&(n%100<10||n%100>=20))?b:c;
@@ -1769,18 +1793,7 @@ PAGES.profil={title:'Profil',render(view){
   const fav=Object.entries(d.g).filter(([k])=>GAMES.some(g=>g.id===k)).sort((x,y)=>(y[1].f-x[1].f)||(y[1].s-x[1].s))[0];
   const favG=fav&&(fav[1].f||fav[1].s)?GAMES.find(g=>g.id===fav[0]):null;
   if(ids.length>1)view.append(h('div',{class:'pfswitch'},ids.map(j=>h('button',{class:'whob'+(j===i?' on':''),onclick:()=>{pfView=j;route();}},pfAvatar(j,28),REALP[j].name))));
-  view.append(h('div',{class:'pfhero'},
-    f?h('img',{class:'pfherofig'+(typeof shFigCls==='function'?shFigCls('hero'):''),src:pfFig('hero'),alt:''}):null,
-    h('div',{class:'pfheroin'},
-      h('div',{class:'pfavwrap'},pfAvatar(i,92),h('div',{class:'pflvl'},L)),
-      h('div',{class:'pfhname'},REALP[i].name),h('div',{class:'pfhtitle'},pfTitle(L,i)),
-      typeof shTitleEl==='function'?shTitleEl(i):null,
-      h('div',{class:'pfxpbar'},h('i',{style:{width:Math.min(100,(d.xp-a)/(b-a)*100)+'%'}})),
-      h('div',{class:'pfxptxt'},`Poziom ${L} · ${fmt(d.xp)} / ${fmt(b)} XP`),
-      h('div',{class:'pfcrow'},h('button',{class:'pfcoins',onclick:()=>go('sklep')},h('span',{},'🪙 '+fmt(d.c)),h('b',{},'Sklepik ›')),
-        f&&typeof shWardrobeBtn==='function'?shWardrobeBtn():null)),
-    h('div',{class:'pfstats'},[['🎮',d.n,pfPlural(d.n,'gra','gry','gier')],['🏆',wins,pfPlural(wins,'wygrana','wygrane','wygranych')],['🔥',st,st===1?'dzień z rzędu':'dni z rzędu'],
-      ['⏱️',pfTime(d.t),'w grach'],['⭐',dls,pfPlural(dls,'wyzwanie','wyzwania','wyzwań')],['🏅',nB+'/'+BADGES.length,'odznak']].map(([ic,v,l])=>h('div',{class:'pfstat'},h('span',{class:'pfsi'},ic),h('b',{},v),h('span',{},l))))));
+  view.append(pfHeroCard(i));
   if(typeof shPetPanel==='function'){const pp=shPetPanel();if(pp)view.append(pp);}
   if(favG){const c=CATS.find(x=>x.id===favG.cat);view.append(h('div',{class:'panel pffav',onclick:()=>go('g-'+favG.id)},
     IMG['g_'+favG.id]?h('div',{class:'pfdart',style:{background:`center/cover url(${IMG['g_'+favG.id]})`}}):h('div',{class:'pfdart',style:{background:c.grad}},favG.icon),
@@ -1857,6 +1870,15 @@ css(`
 .pfmedal.on{filter:none;opacity:1;background:radial-gradient(circle at 35% 30%,#ffffffaa,transparent 45%),linear-gradient(145deg,#ffe48a,#ff9ccf 60%,#b77cff);border-color:#fff;box-shadow:0 0 0 3px rgba(255,200,90,.6),0 0 22px rgba(255,190,90,.55),inset 0 -4px 0 rgba(120,40,140,.25)}
 .pfmedal.big{width:92px;height:92px;font-size:46px;margin:4px auto 6px}
 .pflock{position:absolute;right:-4px;bottom:-4px;font-size:15px;filter:none}
+.pfmenu.hero{padding:14px 14px 12px;min-height:0}
+.pfmenu .pfmtop{display:flex;gap:6px;align-items:stretch}
+.pfmenu .pfheroin{max-width:none;flex:1;min-width:0;z-index:3}
+.pfmenu .pfmfig{position:relative;flex:0 0 132px;min-height:236px;z-index:2}
+.pfmenu .pfmfig.pet{flex-basis:170px}
+.pfmenu .pfmfig .fig{right:-14px;bottom:-4px;height:250px}
+.pfmenu .pfmfig .shdog{right:auto;left:-6px;bottom:-2px}
+.pfmenu .pfstats{margin-top:10px}
+.pfmenu .pfcrow{flex-wrap:wrap}
 .pfswitch{display:flex;gap:8px;justify-content:center;margin:0 0 12px}
 .pfhero{position:relative;border-radius:26px;padding:16px;margin-bottom:12px;overflow:hidden;color:#4a2370;
   background:linear-gradient(135deg,rgba(255,190,225,.92),rgba(200,170,255,.92) 55%,rgba(160,200,255,.9));border:2px solid #fff;box-shadow:0 18px 40px rgba(110,60,190,.35),inset 0 1px 0 #fff}
