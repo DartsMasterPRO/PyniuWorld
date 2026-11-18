@@ -1,5 +1,5 @@
 /* Service worker Krainy Gier Pyniu – generowany przez build_vercel.py */
-const VERSION = '848913b07b65';
+const VERSION = '56f6604b7549';
 const CACHE = 'gry-pyniu-' + VERSION;
 const ASSETS = ["./", "index.html", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png", "icons/maskable-192.png", "icons/maskable-512.png", "icons/apple-touch-icon.png", "icons/favicon-32.png"];
 
