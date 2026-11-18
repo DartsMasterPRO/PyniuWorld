@@ -2894,6 +2894,125 @@ function devMenu(){const i=pfPyniu();
       B('Cofnij zakupy (stroje + Świnia)','dark',act(()=>{SH.g.own={};SH.g.eq={};shSave();store.set('pet',{});shApply();},'Zakupy cofnięte')),
       B('Wyzeruj poziom i coinsy','red',act(()=>{const d=pfLoad(i);d.xp=0;d.c=0;d.lvr=1;pfSave(i,d);},'Wyzerowano')))),
     [{t:'Zamknij i odśwież',cls:'gold',fn:devRefresh}]);}
+/* ================= 🐾 OPIEKA NAD ŚWINIĄ (tamagotchi) + 🎁 CODZIENNA NAGRODA ================= */
+/* ---- stan Świni: najedzenie / humor / czystość (0–100), spadają z czasem rzeczywistym ---- */
+const PET_DECAY={food:100/(30*60),fun:100/(36*60),clean:100/(60*60)}; // punkty na minutę: pełna miska wystarcza na ~30 h
+const PET_FOOD=[
+  {id:'karma',ico:'🥣',name:'Miska karmy',price:15,food:35,fun:0,txt:'Chrup, chrup! Klasyka.'},
+  {id:'kostka',ico:'🦴',name:'Kostka do gryzienia',price:30,food:20,fun:20,txt:'Gryzie z zapałem i merda ogonem.'},
+  {id:'kielbaska',ico:'🌭',name:'Kiełbaska',price:45,food:50,fun:15,txt:'Zniknęła w 0,3 sekundy.'},
+  {id:'serek',ico:'🧀',name:'Kawałek sera',price:35,food:25,fun:25,txt:'Za ser Świnia zrobi wszystko. Nawet usiądzie.'},
+  {id:'tort',ico:'🎂',name:'Tort dla psa',price:120,food:90,fun:40,txt:'Psie urodziny! Świnia jest w siódmym niebie.'}];
+const PET_TOYS=[
+  {id:'pilka',ico:'🎾',name:'Piłka tenisowa',price:80,fun:25,txt:'Aport! I jeszcze raz! I jeszcze!'},
+  {id:'sznur',ico:'🪢',name:'Sznur do przeciągania',price:140,fun:35,txt:'Przeciąganie liny – Świnia zawsze „wygrywa”.'},
+  {id:'swinka',ico:'🐷',name:'Pluszowa świnka',price:220,fun:45,txt:'Świnia i świnka – nierozłączne.'},
+  {id:'frisbee',ico:'🥏',name:'Frisbee',price:320,fun:60,txt:'Lot, skok, złapane! Pies olimpijczyk.'}];
+const PET_BATH=30, PET_PLAY_CD=20*60*1000;
+function petLoad(){const p=shPet();const now=Date.now();
+  if(p.food==null){p.food=80;p.fun=80;p.clean=90;p.t=now;p.toys=p.toys||{};}
+  const min=Math.max(0,(now-(p.t||now))/60000);
+  for(const k in PET_DECAY)p[k]=Math.max(0,p[k]-PET_DECAY[k]*min);p.t=now;p.toys=p.toys||{};return p;}
+function petSave(p){p.t=Date.now();store.set('pet',p);}
+const petMood=p=>Math.round((p.food*1.2+p.fun+p.clean*.8)/3);
+function petNeed(p){if(p.food<30)return['🍖','Jestem głodna!'];if(p.fun<30)return['🎾','Pobaw się ze mną!'];if(p.clean<25)return['🛁','Czas na kąpiel!'];
+  const m=petMood(p);return m>=75?['💗','Kocham Cię!']:m>=50?['🐾','Hau!']:['🥺','Zajmiesz się mną?'];}
+const petHappy=()=>shPetOwned()&&petMood(petLoad())>=70;
+function petCoins(n){const i=pfPyniu(),d=pfLoad(i);if(d.c<n){modal('Za mało coinsów',h('p',{class:'center'},`Potrzebujesz ${fmt(n)} 🪙, a masz ${fmt(d.c)} 🪙. Zagraj w coś – Świnia poczeka! 🐾`),[{t:'OK',cls:'gold'}]);return false;}
+  d.c-=n;pfSave(i,d);return true;}
+function petFly(ico,el){const r=(el||document.body).getBoundingClientRect();for(let k=0;k<6;k++){const s=h('span',{class:'shheart',style:{left:(r.left+r.width*(.25+Math.random()*.5))+'px',top:(r.top+r.height*.35)+'px','--dx':(Math.random()*90-45)+'px','--d':(1+Math.random()*.6)+'s',animationDelay:k*.08+'s'}},k%2?ico:'💗');document.body.append(s);setTimeout(()=>s.remove(),2200);}}
+
+/* ---- strona opieki: #swinia ---- */
+PAGES['swinia']={title:'Świnia 🐾',render(view){
+  if(!shPetOwned()){view.append(shPetPanel());return;}
+  const draw=()=>{view.innerHTML='';const p=petLoad(),m=petMood(p),[ni,nt]=petNeed(p),d=pfLoad(pfPyniu());
+    const img=h('img',{class:'petbig'+(m<35?' sad':''),src:m>=50?(IMG.dog_dance||IMG.dog_sit):(IMG.dog_sit||IMG.dog_dance),alt:'Świnia',onclick:e=>{shPat(e.currentTarget);const q=petLoad();q.fun=Math.min(100,q.fun+1);petSave(q);}});
+    const bar=(ico,l,v,c)=>h('div',{class:'petbar'},h('span',{},ico),h('div',{class:'petbt'},h('b',{},l),h('div',{class:'pettr'},h('i',{style:{width:v+'%',background:c}}))),h('em',{},Math.round(v)+'%'));
+    const canPlay=Date.now()-(p.play||0)>PET_PLAY_CD;
+    view.append(h('div',{class:'panel center petpage'},
+      h('div',{class:'petstage'},h('div',{class:'petbub'},ni+' '+nt),img),
+      h('div',{class:'shpetname'},'Świnia'),h('div',{class:'small mut'},m>=75?'Szczęśliwa jak nigdy 💗':m>=50?'W dobrym humorze 🐾':m>=30?'Trochę marudna…':'Smutna – potrzebuje opieki 🥺'),
+      bar('🍖','Najedzenie',p.food,'linear-gradient(90deg,#ffb36b,#ff7a3d)'),bar('🎾','Humor',p.fun,'linear-gradient(90deg,#ffd84d,#f7a400)'),bar('🛁','Czystość',p.clean,'linear-gradient(90deg,#7fe3ff,#2fa8ff)'),
+      h('div',{class:'small',style:{margin:'6px 0'}},m>=70?'⭐ Szczęśliwa Świnia daje +3 🪙 za każdą skończoną grę!':'Gdy humor Świni przekroczy 70%, dostaniesz +3 🪙 za każdą grę.'),
+      h('div',{class:'small mut'},`Masz ${fmt(d.c)} 🪙`)),
+      h('div',{class:'panel'},h('div',{class:'h2'},'🍖 Nakarm'),h('div',{class:'petgrid'},PET_FOOD.map(f=>h('button',{class:'petit',onclick:()=>{if(!petCoins(f.price))return;const q=petLoad();q.food=Math.min(100,q.food+f.food);q.fun=Math.min(100,q.fun+f.fun);q.fed=(q.fed||0)+1;petSave(q);shBark();petFly(f.ico,$('.petbig'));toast(f.txt);draw();}},
+        h('span',{class:'pi'},f.ico),h('b',{},f.name),h('small',{},`+${f.food} 🍖${f.fun?' +'+f.fun+' 🎾':''}`),h('em',{},f.price+' 🪙'))))),
+      h('div',{class:'panel'},h('div',{class:'h2'},'🎾 Zabawa'),h('p',{class:'small mut',style:{margin:'0 0 6px'}},canPlay?'Zabawki kupujesz raz – bawić się możecie co 20 minut.':`Świnia odpoczywa po zabawie – następna za ${Math.ceil((PET_PLAY_CD-(Date.now()-p.play))/60000)} min.`),
+        h('div',{class:'petgrid'},h('button',{class:'petit',disabled:!canPlay,onclick:()=>{const q=petLoad();q.fun=Math.min(100,q.fun+10);q.play=Date.now();petSave(q);petFly('🐾',$('.petbig'));toast('Gonitwa po pokoju! 🐾');draw();}},h('span',{class:'pi'},'🏃‍♀️'),h('b',{},'Gonitwa'),h('small',{},'+10 🎾'),h('em',{},'za darmo')),
+          PET_TOYS.map(t=>{const own=p.toys[t.id];return h('button',{class:'petit'+(own?' own':''),disabled:own&&!canPlay,onclick:()=>{const q=petLoad();
+            if(!own){if(!petCoins(t.price))return;q.toys[t.id]=Date.now();petSave(q);sfx.win();toast('Nowa zabawka: '+t.name+'! 🎁');return draw();}
+            q.fun=Math.min(100,q.fun+t.fun);q.play=Date.now();petSave(q);shBark();petFly(t.ico,$('.petbig'));toast(t.txt);draw();}},
+            h('span',{class:'pi'},t.ico),h('b',{},t.name),h('small',{},`+${t.fun} 🎾`),h('em',{},own?'Baw się!':t.price+' 🪙'));}))),
+      h('div',{class:'panel'},h('div',{class:'h2'},'🛁 Pielęgnacja'),h('div',{class:'petgrid'},
+        h('button',{class:'petit',onclick:()=>{if(p.clean>95)return toast('Świnia już pachnie jak łąka 🌸');if(!petCoins(PET_BATH))return;const q=petLoad();q.clean=100;q.fun=Math.max(0,q.fun-5);petSave(q);petFly('🫧',$('.petbig'));toast('Kąpiel! Świnia otrzepała się prosto na Ciebie 💦');draw();}},h('span',{class:'pi'},'🛁'),h('b',{},'Kąpiel'),h('small',{},'czystość 100%'),h('em',{},PET_BATH+' 🪙')),
+        h('button',{class:'petit',onclick:e=>{shPat($('.petbig'));const q=petLoad();q.fun=Math.min(100,q.fun+1);petSave(q);}},h('span',{class:'pi'},'🤚'),h('b',{},'Pogłaszcz'),h('small',{},shPatTxt(shPet().n)),h('em',{},'za darmo')))));};
+  draw();}};
+css(`.petpage{position:relative}.petstage{position:relative;height:230px;margin:-4px 0 4px;display:flex;align-items:flex-end;justify-content:center;border-radius:22px;background:radial-gradient(circle at 50% 70%,rgba(255,255,255,.45),transparent 65%)}
+.petbig{height:220px;cursor:pointer;filter:drop-shadow(0 10px 14px rgba(60,20,120,.45));transform-origin:50% 100%}.petbig.sad{filter:grayscale(.55) drop-shadow(0 10px 14px rgba(60,20,120,.45));height:190px}
+.petbub,.petmbub{position:absolute;top:6px;left:50%;transform:translateX(-50%);background:#fff;color:#5a2a86;font:800 14px Nunito;padding:6px 12px;border-radius:16px;box-shadow:0 6px 14px rgba(60,20,120,.3);white-space:nowrap;animation:petbob 2.2s ease-in-out infinite;z-index:5}
+.petbub::after,.petmbub::after{content:'';position:absolute;left:50%;bottom:-7px;margin-left:-7px;border:7px solid transparent;border-top-color:#fff;border-bottom:0}
+@keyframes petbob{50%{transform:translate(-50%,-5px)}}
+.petmbub{top:auto;bottom:118px;left:auto;right:-14px;transform:none;font-size:12px;padding:4px 9px;cursor:pointer;animation:petbob2 2.2s ease-in-out infinite}@keyframes petbob2{50%{transform:translateY(-4px)}}
+.petmbub.need{background:#ffe8a3;color:#8a4b00;box-shadow:0 0 0 2px #ffb347,0 6px 14px rgba(60,20,120,.3)}.petmbub.need::after{border-top-color:#ffe8a3}
+.shdog.petsad{filter:grayscale(.6) drop-shadow(0 8px 10px rgba(80,30,140,.45))}
+.petbar{display:flex;align-items:center;gap:8px;margin:6px 0;text-align:left}.petbar>span{font-size:22px}.petbt{flex:1}.petbt b{font-size:13px}.pettr{height:10px;border-radius:6px;background:rgba(255,255,255,.25);overflow:hidden;margin-top:2px}.pettr i{display:block;height:100%;border-radius:6px;transition:width .5s}.petbar em{font-style:normal;font-weight:800;font-size:13px;min-width:38px;text-align:right}
+.petgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px}
+.petit{display:flex;flex-direction:column;align-items:center;gap:2px;padding:10px 6px;border-radius:16px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.14);color:#fff;font:700 13px Nunito;cursor:pointer}
+.petit:active{transform:scale(.96)}.petit[disabled]{opacity:.45}.petit .pi{font-size:30px}.petit small{opacity:.85}.petit em{font-style:normal;font-weight:900;color:var(--gold)}.petit.own{border-color:#3ddc7e;background:rgba(61,220,126,.2)}`);
+/* stary panel w profilu → link do opieki */
+const petPanel0=shPetPanel;
+shPetPanel=function(){const el=petPanel0();if(shPetOwned()){const p=petLoad(),[ni,nt]=petNeed(p);
+  el.append(h('div',{style:{width:'100%',marginTop:'8px'}},h('button',{class:'btn gold wide',onclick:()=>go('swinia')},`🏠 Opiekuj się Świnią · ${ni} ${nt}`)));el.style.flexWrap='wrap';}return el;};
+/* Świnia w menu: smutna, gdy zaniedbana + dymek z potrzebą */
+onHook('menu',view=>{setTimeout(()=>{if(!shPetOwned())return;const dog=$('.pfmenu .shdog',view)||$('.shdog',view);if(!dog)return;
+  const p=petLoad(),m=petMood(p),[ni,nt]=petNeed(p),need=p.food<30||p.fun<30||p.clean<25;
+  if(m<35){dog.classList.add('petsad');if(IMG.dog_sit&&dog.tagName==='IMG')dog.src=IMG.dog_sit;}
+  const b=h('div',{class:'petmbub'+(need?' need':''),onclick:e=>{e.stopPropagation();go('swinia');}},ni+' '+(need?nt:'Świnia'));
+  dog.parentNode.append(b);},40);});
+/* bonus od szczęśliwej Świni */
+onHook('end',e=>{if(!petHappy())return;const i=pfPyniu(),d=pfLoad(i);d.c+=3;d.ct+=3;pfSave(i,d);setTimeout(()=>toast('🐾 Szczęśliwa Świnia: +3 🪙'),1600);});
+
+/* ================= 🎁 CODZIENNA NAGRODA – koło z coinsami ================= */
+const DR_SEG=[10,25,15,50,20,30,15,100];      // pola koła (coinsy); seria 7 dni = nagroda ×2
+const drKey=i=>'daily_'+i;
+function drLoad(i){return store.get(drKey(i),{last:null,streak:0});}
+function drYesterday(){const d=new Date();d.setDate(d.getDate()-1);return dayKey(d);}
+function drStreakNow(r){return r.last===dayKey()?r.streak:r.last===drYesterday()?r.streak:0;}
+const drCan=i=>drLoad(i).last!==dayKey();
+function drCard(){const ps=REALP.map((_,i)=>i).filter(drCan);if(!ps.length)return null;
+  const who=ps.includes(pfPyniu())?pfPyniu():ps[0],r=drLoad(who),st=drStreakNow(r);
+  return h('div',{class:'drcard',onclick:()=>drSpin(who)},
+    h('div',{class:'drgift'},'🎁'),h('div',{style:{flex:1}},h('b',{},who===pfPyniu()?'Codzienna nagroda czeka!':`Nagroda dla: ${REALP[who].name}`),h('div',{class:'small'},`Zakręć kołem i wygraj coinsy · seria: ${st} ${pfPlural(st,'dzień','dni','dni')}`),
+      h('div',{class:'drdots'},[1,2,3,4,5,6,7].map(k=>h('i',{class:k<=st?'on':''},k===7?'×2':'')))),h('span',{class:'drgo'},'Kręć!'));}
+function drSpin(i){const r=drLoad(i);if(r.last===dayKey())return toast('Dziś już kręcone – wróć jutro! 🌙');
+  const st=drStreakNow(r)+1,dbl=st%7===0;let spun=false;
+  const N=DR_SEG.length,cols=['#ff7cc0','#ffd84d','#7fd6ff','#b18cff','#7dfaa7','#ffa36b','#ff9fd6','#f7c948'];
+  const grad='conic-gradient('+DR_SEG.map((_,k)=>`${cols[k]} ${k*360/N}deg ${(k+1)*360/N}deg`).join(',')+')';
+  const wheel=h('div',{class:'drwheel',style:{background:grad}},DR_SEG.map((v,k)=>h('span',{style:{transform:`rotate(${(k+.5)*360/N}deg) translateY(-104px) rotate(${-(k+.5)*360/N}deg)`}},v===100?'💎100':v)));
+  const btn=h('button',{class:'btn gold xl wide',onclick:()=>{if(spun)return;spun=true;btn.disabled=true;
+    const w=[3,3,3,1.2,3,2,3,.5],tot=w.reduce((a,b)=>a+b);let x=Math.random()*tot,k=0;while(x>w[k]){x-=w[k];k++;}
+    const deg=360*6+(360-(k+.5)*360/N)+(Math.random()-.5)*(300/N);wheel.style.transform=`rotate(${deg}deg)`;
+    let t=0;const tick=setInterval(()=>{tone(900+Math.random()*300,.03,'square',.03);if(++t>28)clearInterval(tick);},110);
+    setTimeout(()=>{const win=DR_SEG[k]*(dbl?2:1);const d=pfLoad(i);d.c+=win;d.ct+=win;pfSave(i,d);store.set(drKey(i),{last:dayKey(),streak:st});
+      sfx.win();confetti();if(typeof shCoinPop==='function')shCoinPop([[i,win]]);
+      res.innerHTML='';res.append(h('div',{class:'big',style:{color:'var(--gold)'}},`+${win} 🪙`),dbl?h('div',{class:'small'},'🔥 7. dzień serii – nagroda podwójna!'):h('div',{class:'small mut'},`Seria: ${st} ${pfPlural(st,'dzień','dni','dni')} · ${7-st%7} do podwójnej nagrody`));
+      btn.textContent='Super!';btn.disabled=false;btn.onclick=()=>{clearOverlays();if(location.hash===''||location.hash==='#'){location.hash='#_';setTimeout(()=>location.hash='',30);}};},4300);}},'🎡 Zakręć!');
+  const res=h('div',{class:'center',style:{minHeight:'54px',marginTop:'6px'}},h('div',{class:'small mut'},dbl?'🔥 Dziś 7. dzień serii – wygrana ×2!':`Seria: ${st-1} → ${st}. Siódmy dzień z rzędu = podwójna nagroda!`));
+  overlay(h('div',{class:'modal center'},h('div',{class:'h1'},'🎁 Codzienna nagroda'),h('div',{class:'row',style:{justifyContent:'center',gap:'6px',margin:'0 0 6px'}},pfAvatar(i,30),h('b',{},REALP[i].name)),
+    h('div',{class:'drwrap'},h('div',{class:'drpin'},'▼'),wheel,h('div',{class:'drhub'},'🪙')),res,btn,
+    REALP.length>1?h('div',{class:'small mut',style:{marginTop:'6px'}},'Każde z was kręci raz dziennie.'):null));}
+onHook('menu',view=>{const c=drCard();if(!c)return;const d=$('.pfdaily',view);if(d)d.before(c);else{const hh=$('.hero',view);hh?hh.after(c):view.prepend(c);}});
+css(`.drcard{display:flex;align-items:center;gap:12px;margin:0 0 14px;padding:12px 14px;border-radius:22px;cursor:pointer;color:#5a2a00;
+  background:linear-gradient(135deg,#fff3c4,#ffd36b 55%,#ffb347);box-shadow:0 10px 24px rgba(255,160,40,.35),inset 0 1px 0 #fff;animation:drpulse 2.4s ease-in-out infinite}
+@keyframes drpulse{50%{box-shadow:0 10px 30px rgba(255,160,40,.6),inset 0 1px 0 #fff}}
+.drgift{font-size:40px;animation:drshake 1.8s ease-in-out infinite}@keyframes drshake{0%,70%,100%{transform:rotate(0)}75%{transform:rotate(-12deg)}85%{transform:rotate(12deg)}}
+.drcard b{font:800 17px Baloo,Nunito}.drgo{font:900 15px Nunito;background:#ff4f9e;color:#fff;padding:8px 14px;border-radius:999px;box-shadow:0 4px 0 #b3236a}
+.drdots{display:flex;gap:4px;margin-top:5px}.drdots i{width:20px;height:8px;border-radius:4px;background:rgba(120,60,0,.18);font:900 8px/8px Nunito;font-style:normal;text-align:center;color:#8a4b00}.drdots i.on{background:#ff7a3d}
+.drwrap{position:relative;width:260px;height:260px;margin:6px auto}
+.drwheel{position:absolute;inset:0;border-radius:50%;border:6px solid #fff;box-shadow:0 10px 30px rgba(40,10,90,.45),inset 0 0 0 3px rgba(0,0,0,.08);transition:transform 4.2s cubic-bezier(.12,.75,.12,1)}
+.drwheel span{position:absolute;left:50%;top:50%;margin:-14px 0 0 -26px;width:52px;text-align:center;font:900 18px Baloo,Nunito;color:#3a1a5a;text-shadow:0 1px 0 #fff}
+.drhub{position:absolute;left:50%;top:50%;width:54px;height:54px;margin:-27px;border-radius:50%;background:linear-gradient(180deg,#fff,#ffe38a);display:grid;place-items:center;font-size:26px;box-shadow:0 4px 12px rgba(0,0,0,.3)}
+.drpin{position:absolute;left:50%;top:-14px;transform:translateX(-50%);font-size:30px;color:#ff4f9e;z-index:3;text-shadow:0 2px 0 #fff,0 4px 8px rgba(0,0,0,.3)}`);
 /* ======================= TELETURNIEJE ======================= */
 css(`
 .stage{position:relative;border-radius:20px;padding:12px;overflow:hidden;
