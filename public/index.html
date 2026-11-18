@@ -2842,6 +2842,35 @@ body.shth-kosmos{--t-base:#05061c;--t-bgf:brightness(.32) saturate(1.6) hue-rota
   --t-view:linear-gradient(180deg,rgba(16,22,64,.86),rgba(8,10,40,.92));--t-modal:linear-gradient(180deg,#2a2f8a,#161a55 60%,#0e1040);
   --t-b1:#6fb8ff;--t-b2:#4b3fe0;--t-bsh:#22188a;--t-light:linear-gradient(135deg,rgba(222,236,255,.96),rgba(216,206,255,.94))}
 `);
+/* ---------- UKRYTE MENU TESTOWE ----------
+   Wejście: stuknij 7 razy szybko w kółko z numerem poziomu przy awatarze (menu główne albo profil). */
+let devTaps=[];
+document.addEventListener('click',e=>{if(!e.target.closest('.pflvl'))return;e.stopPropagation();e.preventDefault();
+  const now=Date.now();devTaps=devTaps.filter(t=>now-t<2500);devTaps.push(now);
+  if(devTaps.length>=7){devTaps=[];devMenu();}else if(devTaps.length>=4)toast(`🛠️ jeszcze ${7-devTaps.length}…`);},true);
+function devRefresh(){const hsh=location.hash;if(['','#','#sklep','#profil'].includes(hsh)){location.hash='#_';setTimeout(()=>location.hash=hsh||'',30);}}
+function devMenu(){const i=pfPyniu();
+  const info=()=>{const d=pfLoad(i);return `${REALP[i].name}: poziom ${pfLevel(d.xp)} · ${fmt(d.xp)} XP · ${fmt(d.c)} 🪙`;};
+  const st=h('div',{class:'small mut center',style:{margin:'0 0 8px'}},info());
+  const act=(fn,msg)=>()=>{fn();st.textContent=info();if(msg)toast(msg);};
+  const coins=n=>{const d=pfLoad(i);d.c+=n;d.ct+=n;pfSave(i,d);};
+  const level=L=>{const d=pfLoad(i);d.xp=Math.max(d.xp,pfNeed(L));d.lvr=Math.max(d.lvr||1,L);pfSave(i,d);};
+  const out=SHOP_ITEMS.filter(x=>x.cat==='stroje'&&!shIsDef(x));
+  const B=(t,cls,fn)=>h('button',{class:'btn sm '+cls,onclick:fn},t);
+  modal('🛠️ Menu testowe',h('div',{},st,
+    h('div',{class:'h2',style:{fontSize:'15px'}},'🪙 Coinsy'),
+    h('div',{class:'grid2'},B('+500','gold',act(()=>coins(500),'+500 🪙')),B('+5 000','gold',act(()=>coins(5000),'+5 000 🪙'))),
+    h('div',{class:'h2',style:{fontSize:'15px',marginTop:'10px'}},'⭐ Poziom (odsłania kolekcje strojów)'),
+    h('div',{class:'grid2'},[10,12,20,30,40].map(L=>B('Poziom '+L,'purple',act(()=>level(L),'Poziom '+L)))),
+    h('div',{class:'h2',style:{fontSize:'15px',marginTop:'10px'}},'👗 Stroje i Świnia'),
+    h('div',{class:'col'},
+      B('Odblokuj wszystkie stroje (za darmo)','pink',act(()=>{level(40);out.forEach(x=>{SH.g.own[x.id]=Date.now();});shSave();},'Wszystkie stroje w Szafie')),
+      B('🐾 Adoptuj Świnię (za darmo)','teal',act(()=>{level(12);const it=shItem('pet_swinia');if(it){SH.g.own[it.id]=Date.now();shSave();const p=shPet();p.at=p.at||Date.now();store.set('pet',p);shEquip(it,i);}},'Świnia adoptowana 🐾')),
+      B('🚪 Otwórz Szafę','green',()=>{clearOverlays();go('sklep');setTimeout(()=>{const b=[...document.querySelectorAll('button')].find(x=>/Otwórz Szaf/.test(x.textContent));b&&b.click();},300);}),
+      B('🛍️ Otwórz Sklepik','green',()=>{clearOverlays();go('sklep');}),
+      B('Cofnij zakupy (stroje + Świnia)','dark',act(()=>{SH.g.own={};SH.g.eq={};shSave();store.set('pet',{});shApply();},'Zakupy cofnięte')),
+      B('Wyzeruj poziom i coinsy','red',act(()=>{const d=pfLoad(i);d.xp=0;d.c=0;d.lvr=1;pfSave(i,d);},'Wyzerowano')))),
+    [{t:'Zamknij i odśwież',cls:'gold',fn:devRefresh}]);}
 /* ======================= TELETURNIEJE ======================= */
 css(`
 .stage{position:relative;border-radius:20px;padding:12px;overflow:hidden;
