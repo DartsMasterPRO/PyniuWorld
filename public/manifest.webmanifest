@@ -1,0 +1,68 @@
+{
+  "id": "./",
+  "name": "Kraina Gier Pyniu",
+  "short_name": "Gry Pyniu",
+  "lang": "pl",
+  "dir": "ltr",
+  "description": "Teleturnieje, gry słowne, planszowe i gry dla pary – na jednym telefonie, także bez internetu.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#c9a8ff",
+  "background_color": "#2a1350",
+  "categories": [
+    "games",
+    "entertainment"
+  ],
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Profil i odznaki",
+      "short_name": "Profil",
+      "url": "./#profil",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Słowo dnia",
+      "short_name": "Słowo dnia",
+      "url": "./#g-wordle",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ]
+}
