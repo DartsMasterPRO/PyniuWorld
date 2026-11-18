@@ -3,6 +3,15 @@
   "outputDirectory": "public",
   "headers": [
     {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
+        }
+      ]
+    },
+    {
       "source": "/sw.js",
       "headers": [
         {
@@ -82,5 +91,16 @@
       ]
     }
   ],
-  "framework": null
+  "framework": null,
+  "crons": [
+    {
+      "path": "/api/cron",
+      "schedule": "0 17 * * *"
+    }
+  ],
+  "functions": {
+    "api/*.js": {
+      "maxDuration": 30
+    }
+  }
 }

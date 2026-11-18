@@ -1,0 +1,11 @@
+{
+  "name": "kraina-gier-pyniu",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Kraina Gier Pyniu – PWA + powiadomienia push (funkcje Vercel w api/)",
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "@upstash/redis": "^1.35.0",
+    "web-push": "^3.6.7"
+  }
+}
