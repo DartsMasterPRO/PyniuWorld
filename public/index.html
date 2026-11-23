@@ -1552,7 +1552,7 @@ const BADGES=[
   {id:'gry100',cat:'gry',ico:'💯',name:'Setka!',desc:'Rozegraj 100 gier.',prog:d=>pfC(d.n,100)},
   {id:'gry250',cat:'gry',ico:'👑',name:['Królowa Krainy','Król Krainy'],desc:'Rozegraj 250 gier.',prog:d=>pfC(d.n,250)},
   {id:'ulubiona',cat:'gry',ico:'❤️',name:'Wielka miłość',desc:'Zagraj 20 razy w tę samą grę.',prog:d=>pfC(Math.max(0,...Object.values(d.g).map(g=>g.f||0)),20)},
-  {id:'para',cat:'gry',ico:'💞',name:'Zgrana para',desc:'Zagrajcie we dwoje 10 razy w gry dla pary.',prog:d=>pfC(pfCatF(d,'couple',g=>g.fm.duo||0),10)},
+  {id:'para',cat:'gry',ico:'💞',name:'Zgrana para',desc:'Zagrajcie we dwoje 10 razy w gry dla pary.',prog:d=>pfC(pfCatF(d,'couple',g=>(g.fm.duo||0)+(g.fm.online||0)),10)},
   {id:'strategia',cat:'gry',ico:'♟️',name:['Strateżka','Strateg'],desc:'Rozegraj 20 gier planszowych i logicznych.',prog:d=>pfC(pfCatF(d,'board',g=>g.f),20)},
   {id:'maraton',cat:'gry',ico:'🏃‍♀️',name:'Maraton',desc:'Rozegraj 10 gier jednego dnia.',prog:d=>pfC(Math.max(0,...Object.values(d.days)),10)},
   {id:'duo1',cat:'win',ico:'💑',name:'Pierwsze zwycięstwo',desc:'Wygraj grę we dwoje.',prog:d=>pfC(pfSum(d,g=>g.w),1)},
@@ -6521,10 +6521,37 @@ Jak wyglądałaby moja wymarzona emerytura?
 Czy poleciałbym/poleciałabym na Księżyc, gdybym wygrał/a bilet?
 Z kim chciałbym/chciałabym zamienić się życiem na jeden dzień?
 Z jakim zwierzęciem chciałbym/chciałabym porozmawiać?`.split('\n');
-game({id:'znasz',art:'chmurka',cat:'couple',icon:'💞',name:'Jak dobrze mnie znasz?',desc:'Zgadnij odpowiedzi partnera',modes:['duo'],run(v,ctx,restart){
-  const G=this;let n=10;
-  startScreen(v,G,{rules:['Jedna osoba w ukryciu wpisuje albo mówi 🎤 odpowiedź o sobie.','Druga osoba próbuje ją zgadnąć (też można powiedzieć).','Aplikacja podpowiada, czy pasuje, ale ostatnie słowo ma odpowiadający: „Zaliczam” albo „Nie zaliczam”.','Trafienie daje punkt zgadującemu. Role zmieniają się w każdym pytaniu.'],
-    extra:choiceRow([[6,'6 pytań'],[10,'10 pytań'],[16,'16 pytań']],10,x=>n=x)},()=>{qs=deck('znasz',KNOW).take(n);q(0);});
+/* --- wspólne dla gier „dla pary” przez internet (prefiks cpo; używane też w 31–34) ---
+   cpoBox(NET): „jedna strona decyduje” – put(k,v) wysyła wartość partnerowi, wait(k,cb) czeka na wartość od partnera. */
+function cpoBox(NET){const M={},W={};
+  NET.on('cpv',d=>{if(!d||typeof d.k!=='string')return;M[d.k]=d.v;const f=W[d.k];if(f){delete W[d.k];try{f(d.v);}catch(e){console.error(e);}}});
+  return{put(k,v){NET.send('cpv',{k,v:v===undefined?null:v});},wait(k,cb){if(k in M)return cb(M[k]);W[k]=cb;}};}
+/* mały „czekam na…” ze spinnerem */
+const cpoSpin=t=>h('div',{class:'olst'},h('span',{class:'olspin'}),h('span',{},t));
+/* „Zrobiłem/am” → „Zrobiłam” dla Pyniu */
+const cpoF=(i,m,f,x)=>P[i]&&P[i].img==='pyniu'?f:x||m+'/'+f;
+const cpoStr=(t,n)=>String(t==null?'':t).slice(0,n||80);
+css(`.cpolock{background:rgba(10,14,45,.5);border:1px solid var(--line);border-radius:16px;padding:12px;text-align:center;margin-top:12px}
+.cpolock .big{font-size:22px;word-break:break-word}
+.cporeact{font:900 24px Nunito,sans-serif;text-align:center;margin:12px 0 6px;animation:pop .4s}
+.cpoans{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+.cpoans>div{background:rgba(255,255,255,.1);border-radius:14px;padding:10px;border:2px solid var(--pc,transparent);min-width:0}
+.cpoans .big{font-size:20px;word-break:break-word}
+.cpowho{display:flex;align-items:center;gap:6px;font:800 13px Nunito,sans-serif;justify-content:center;margin-bottom:4px}
+.cpowho .avatar{width:24px;height:24px;font-size:11px}
+.card3d .cpowho{background:rgba(10,14,45,.55);border-radius:999px;padding:3px 10px 3px 4px;margin:8px auto 0;width:max-content;max-width:100%;filter:brightness(1.25)}`);
+const ZN_OK=['🎯 Telepatia!','💘 Zna Cię na wylot!','🔮 Czyta w myślach!','🥰 No proszę – słuchał(a) uważnie!','✨ Bezbłędnie!'];
+const ZN_BAD=['🙈 Pudło – do nadrobienia na randce!','😅 Prawie… ale nie!','🤭 Ktoś tu nie słuchał!','💌 Zapiszcie to na lodówce!','🙃 Wyjaśnicie to przy kolacji!'];
+game({id:'znasz',art:'chmurka',cat:'couple',icon:'💞',name:'Jak dobrze mnie znasz?',desc:'Zgadnij odpowiedzi partnera',modes:['duo','online'],run(v,ctx,restart){
+  const G=this;let n=10,NET=null,BOX=null,GN=0;
+  const again=()=>ONLINE()?NET.again():restart();
+  olStart(v,G,{rules:m=>m==='online'?['Gracie na dwóch telefonach – to samo pytanie pojawia się u obojga.','Jedno z was wpisuje albo mówi 🎤 prawdziwą odpowiedź o sobie, a drugie w tym samym czasie zgaduje ją u siebie.','Odpowiedzi odkrywają się razem. Aplikacja podpowiada, czy pasują, ale decyduje autor odpowiedzi: „Zaliczam” albo „Nie zaliczam”.','Trafienie = punkt dla zgadującego. Role zmieniają się co pytanie.']
+      :['Jedna osoba w ukryciu wpisuje albo mówi 🎤 odpowiedź o sobie.','Druga osoba próbuje ją zgadnąć (też można powiedzieć).','Aplikacja podpowiada, czy pasuje, ale ostatnie słowo ma odpowiadający: „Zaliczam” albo „Nie zaliczam”.','Trafienie daje punkt zgadującemu. Role zmieniają się w każdym pytaniu.'],
+    extra:choiceRow([[6,'6 pytań'],[10,'10 pytań'],[16,'16 pytań']],10,x=>n=x)},
+    m=>m==='online'?onlineLobby(v,ctx,G,{back:restart,onReady:net=>{NET=net;BOX=cpoBox(net);
+        net.round(info=>{const o=info.opt||{};GN++;qs=(o.qs||[]).map(i=>KNOW[i]).filter(Boolean);n=Math.min([6,10,16].includes(o.n)?o.n:10,qs.length);pts[0]=pts[1]=0;me=info.starter;oq(0);},
+          ()=>({n,qs:deck('znasz',KNOW).take(n).map(x=>KNOW.indexOf(x))}));}})
+      :(qs=deck('znasz',KNOW).take(n),q(0)));
   const pts=[0,0];let qs=[],me=rnd(2);
   const card=(cls,lab,lc,qq)=>h('div',{class:'card3d '+cls},h('div',{class:'lab',style:{color:lc}},lab),h('div',{class:'w',style:{fontSize:'24px',textTransform:'none'}},qq));
   function q(i){if(i>=n)return finish(G.id,pts[0]>pts[1]?0:pts[1]>pts[0]?1:null,`Trafienia: ${pts[0]} : ${pts[1]}`,restart);
@@ -6544,6 +6571,39 @@ game({id:'znasz',art:'chmurka',cat:'couple',icon:'💞',name:'Jak dobrze mnie zn
         h('div',{class:'grid2'},h('button',{class:'btn green xl'+(auto?' sel':''),onclick:()=>next(true)},'✓ Zaliczam'),h('button',{class:'btn red xl'+(auto?'':' sel'),onclick:()=>next(false)},'✗ Nie zaliczam')));
       if(auto)sfx.good();}
   }
+  /* ---- ONLINE: oboje naraz, każde na swoim telefonie ---- */
+  function oq(i){if(i>=n)return olFinish(G.id,pts[0]>pts[1]?0:pts[1]>pts[0]?1:null,`Trafienia: ${pts[0]} : ${pts[1]}`,again);
+    const qq=qs[i],ans=i%2===0?me:1-me,gs=1-ans,mine=ans===0,K=GN+'z'+i;
+    v.innerHTML='';const sb=scoreBar(pts);sb.turn(gs);const bd=olBadge();say(qq);
+    const area=h('div',{style:{marginTop:'14px'}});
+    const vi=voiceInput((t,alts)=>submit(t,alts),{placeholder:mine?'Prawdziwa odpowiedź – wpisz albo powiedz 🎤':'Twój strzał – wpisz albo powiedz 🎤',btn:mine?'Zapisz':'Strzał'});
+    area.append(vi.el,mine?null:h('button',{class:'btn ghost sm',style:{margin:'10px auto 0',display:'block'},onclick:()=>submit('—',[])},'Nie mam pojęcia 🤷'));
+    v.append(sb.el,h('div',{class:'small mut center'},`Pytanie ${i+1}/${n}`),
+      card(mine?'pink':'blue',mine?'🤫 Odpowiedz szczerze o sobie':`🔮 Co odpowie ${P[1].name}?`,mine?'#ffe0ef':'#dcecff',qq),
+      h('p',{class:'small mut center'},mine?`${P[1].name} w tym samym czasie zgaduje Twoją odpowiedź.`:`${P[1].name} właśnie wpisuje prawdziwą odpowiedź – trafisz?`),area,bd.el);
+    vi.focus();
+    NET.onPeer(K,()=>bd.set(mine?`🔒 ${P[1].name} już ${isPyniu(1)?'strzeliła':'strzelił(a)'}!`:`🔒 ${P[1].name} już ${isPyniu(1)?'odpowiedziała':'odpowiedział(a)'}!`,'good'));
+    function submit(t,alts){if(!area.isConnected||area.dataset.done)return;area.dataset.done=1;try{_rec&&_rec.abort();}catch(e){}
+      t=cpoStr(t);area.innerHTML='';
+      area.append(h('div',{class:'cpolock'},h('div',{class:'small mut'},mine?'🔒 Twoja odpowiedź':'🔒 Twój strzał'),h('div',{class:'big'},t),NET.peerIn(K)?null:cpoSpin(`Czekam na ${P[1].name}…`)));
+      NET.sync(K,{t,alts:(alts||[]).slice(0,5).map(x=>cpoStr(x))},(m,th)=>{th=th&&typeof th==='object'?th:{};
+        const pt={t:cpoStr(th.t)||'—',alts:Array.isArray(th.alts)?th.alts.slice(0,5).map(x=>cpoStr(x)):[]};
+        reveal(mine?m:pt,mine?pt:m);});}
+    function reveal(a,g){v.innerHTML='';const auto=g.alts.length>0&&a.t!=='—'&&(isMatch(g.alts,[a.t])||isMatch([a.t],g.alts));
+      const res=h('div',{});
+      v.append(sb.el,h('div',{class:'card3d dark'},h('div',{class:'lab',style:{color:'#f7c948'}},qq),
+        h('div',{class:'cpoans'},[ans,gs].map(p=>h('div',{style:{'--pc':P[p].color}},h('div',{class:'cpowho',style:{color:P[p].color}},avatar(p),p===0?'Ty':P[p].name),
+          h('div',{class:'small mut'},p===ans?'prawdziwa odpowiedź':'strzał'),h('div',{class:'big'},p===ans?a.t:g.t))))),
+        h('p',{class:'center'},h('span',{class:'chip'},auto?'🎯 Wygląda na trafienie!':'🤔 Nie brzmi tak samo…')),res);
+      if(auto)sfx.good();else sfx.pop();
+      const done=ok=>{res.innerHTML='';if(ok){pts[gs]++;sfx.good();vibe([30,30,60]);}else sfx.bad();sb.set(pts);
+        res.append(h('div',{class:'cporeact',style:{color:ok?'#7ff0b0':'#ffd0e6'}},(ok?ZN_OK:ZN_BAD)[i%5]),
+          h('p',{class:'center small mut'},ok?(gs===0?'+1 punkt dla Ciebie!':`${P[1].name} +1 punkt`):'Bez punktu tym razem.'),
+          h('button',{class:'btn gold xl wide',onclick:()=>olWait(NET,K+'n',()=>oq(i+1))},i+1<n?'Dalej':'Wyniki 🏆'));};
+      if(mine)res.append(h('p',{class:'center mut'},'To Twoja odpowiedź – decydujesz: trafił'+(isPyniu(1)?'a':'(a)')+'?'),
+        h('div',{class:'grid2'},[[true,'green','✓ Zaliczam'],[false,'red','✗ Nie zaliczam']].map(([ok,c,t])=>h('button',{class:'btn xl '+c+(ok===auto?' sel':''),onclick:()=>{if(res.dataset.d)return;res.dataset.d=1;BOX.put(K+'v',ok);done(ok);}},t))));
+      else{res.append(cpoSpin(`${P[1].name} decyduje, czy zaliczyć…`));BOX.wait(K+'v',ok=>done(!!ok));}}
+  }
 }});
 /* ---------- WOLISZ ---------- */
 const WOL_CATS={jedzenie:['🍕','Jedzenie'],podroze:['✈️','Podróże'],magia:['✨','Supermoce i fantazja'],dylematy:['🙃','Śmieszne dylematy'],para:['💞','Życie we dwoje'],zycie:['🌿','Codzienność i gusta']};
@@ -6557,10 +6617,20 @@ zycie:`Kot|Pies;Lato|Zima;Książka|Film;Wcześnie wstawać|Późno chodzić spa
 };
 const WOL=Object.entries(WOL_SRC).flatMap(([c,s])=>s.split(';').map(x=>[...x.split('|'),c]));
 const wolId=x=>hid(x[0]+'|'+x[1]);
-game({id:'wolisz',art:'chmurka',cat:'couple',icon:'⚖️',name:'Wolisz…?',desc:'Zgadnij, co wybierze partner',modes:['duo','solo'],modeNames:{solo:'Poznaj siebie'},run(v,ctx,restart){
-  const G=this;let n=10;const LIM=6;
-  startScreen(v,G,{rules:m=>m==='solo'?['Na każde pytanie masz tylko '+LIM+' sekund – wybieraj sercem, nie głową!','Na koniec zobaczysz swój profil: co wybierasz, nad czym się wahasz, a co wiesz od razu.','Rekord to najkrótszy średni czas decyzji.']:['Jedna osoba w ukryciu wybiera jedną z dwóch opcji.','Druga osoba zgaduje, co zostało wybrane.','Trafienie daje punkt. Role zmieniają się co pytanie.'],
-    extra:choiceRow([[10,'10 pytań'],[16,'16 pytań'],[24,'24 pytania']],10,x=>n=x)},()=>{qs=deck('wolisz',WOL,wolId).take(n);SOLO()?solo(0):q(0);});
+const WOL_SAME=['💞 Zgodni jak nigdy!','🥰 Ta sama fala!','✨ Dwie dusze, jeden wybór!','🍯 Słodko – myślicie tak samo!','🤝 Pełna zgoda!','🎶 Gracie w duecie!'];
+const WOL_DIFF=['🙃 Przeciwieństwa się przyciągają!','😜 No i jest o czym pogadać!','🔥 Gorąca debata gwarantowana!','🤭 Każde ciągnie w swoją stronę!','🌗 Dwa różne światy – i dobrze!'];
+game({id:'wolisz',art:'chmurka',cat:'couple',icon:'⚖️',name:'Wolisz…?',desc:'Zgadnij, co wybierze partner',modes:['duo','online','solo'],modeNames:{solo:'Poznaj siebie'},run(v,ctx,restart){
+  const G=this;let n=10,NET=null,GN=0;const LIM=6;
+  const again=()=>ONLINE()?NET.again():restart();
+  olStart(v,G,{rules:m=>m==='solo'?['Na każde pytanie masz tylko '+LIM+' sekund – wybieraj sercem, nie głową!','Na koniec zobaczysz swój profil: co wybierasz, nad czym się wahasz, a co wiesz od razu.','Rekord to najkrótszy średni czas decyzji.']
+      :m==='online'?['Gracie na dwóch telefonach – to samo pytanie pojawia się u obojga.','Każde w ukryciu wybiera, co woli, a potem zgaduje, co wybierze partner.','Odkrywamy razem! Trafiony strzał = punkt.','Na koniec zobaczycie, w ilu procentach macie te same gusta 💞']
+      :['Jedna osoba w ukryciu wybiera jedną z dwóch opcji.','Druga osoba zgaduje, co zostało wybrane.','Trafienie daje punkt. Role zmieniają się co pytanie.'],
+    extra:choiceRow([[10,'10 pytań'],[16,'16 pytań'],[24,'24 pytania']],10,x=>n=x)},
+    m=>m==='online'?onlineLobby(v,ctx,G,{back:restart,onReady:net=>{NET=net;
+        net.round(info=>{const o=info.opt||{};GN++;qs=(o.qs||[]).map(i=>WOL[i]).filter(Boolean);n=Math.min([10,16,24].includes(o.n)?o.n:10,qs.length);pts[0]=pts[1]=0;same=0;olog.length=0;oq(0);},
+          ()=>({n,qs:deck('wolisz',WOL,wolId).take(n).map(x=>WOL.indexOf(x))}));}})
+      :(qs=deck('wolisz',WOL,wolId).take(n),SOLO()?solo(0):q(0)));
+  let same=0;const olog=[];
   const pts=[0,0];let qs=[],me=rnd(2);
   const opts=(a,b,cb)=>h('div',{class:'duo'},h('button',{class:'btn pink xl opt',onclick:()=>cb(0)},a),h('button',{class:'btn blue xl opt',onclick:()=>cb(1)},b));
   function q(i){if(i>=n)return finish(G.id,pts[0]>pts[1]?0:pts[1]>pts[0]?1:null,`Trafienia: ${pts[0]} : ${pts[1]}`,restart);
@@ -6591,6 +6661,35 @@ game({id:'wolisz',art:'chmurka',cat:'couple',icon:'⚖️',name:'Wolisz…?',des
       ...Object.entries(byCat).map(([c,xs])=>h('div',{class:'panel',style:{marginTop:'10px'}},h('div',{class:'h2'},WOL_CATS[c].join(' ')),
         ...xs.map(x=>h('div',{class:'small',style:{margin:'4px 0'}},x.k==null?h('span',{class:'mut'},'⏱ '+x.a+' / '+x.b):[h('b',{style:{color:'var(--gold)'}},'✓ '+[x.a,x.b][x.k]),h('span',{class:'mut'},'  zamiast '+[x.a,x.b][1-x.k])])))),
       h('button',{class:'btn gold xl wide',style:{marginTop:'12px'},onclick:()=>finish(G.id,null,type[0]+' '+type[1]+' · średni czas decyzji',restart,{score:Math.round(avg*10)/10,lowerBetter:true,unit:' s',fmt:x=>x.toFixed(1).replace('.',','),win:true})},'Zakończ'));}
+  /* ---- ONLINE: oboje wybierają naraz + zgadują wybór partnera ---- */
+  function oq(i){if(i>=n)return oEnd();
+    const [a,b,c]=qs[i],K=GN+'w'+i;let my=null;
+    const bd=olBadge(),box=h('div',{});
+    v.innerHTML='';const sb=scoreBar(pts);
+    v.append(sb.el,h('div',{class:'small mut center'},'Pytanie '+(i+1)+'/'+n+' · '+WOL_CATS[c].join(' ')),box,bd.el);
+    NET.onPeer(K,()=>bd.set(`🔒 ${P[1].name} ${isPyniu(1)?'wybrała':'wybrał(a)'} i ${isPyniu(1)?'zgadła':'zgadł(a)'} – czekamy na Ciebie!`,'good'));
+    const step=(t,sub,cb)=>{box.innerHTML='';box.append(h('div',{class:'center h2'},t),sub?h('div',{class:'small mut center'},sub):null,opts(a,b,cb));};
+    step('Co Ty wolisz?','Wybierz szczerze – partner tego nie widzi 🤫',k=>{my=k;sfx.click();
+      step(`A co wybierze ${P[1].name}?`,'Twój wybór: '+[a,b][k],g=>{sfx.click();box.innerHTML='';
+        box.append(h('div',{class:'cpolock'},h('div',{class:'small mut'},'🔒 Twój wybór'),h('div',{class:'big'},[a,b][my]),h('div',{class:'small mut',style:{marginTop:'6px'}},`Strzał: ${P[1].name} wybierze „${[a,b][g]}”`),NET.peerIn(K)?null:cpoSpin(`Czekam na ${P[1].name}…`)));
+        NET.sync(K,{c:my,g},(m,t)=>{t=t&&typeof t==='object'?t:{};const tc=t.c===1?1:0,tg=t.g===1?1:0;reveal(m.c,m.g,tc,tg);});});});
+    function reveal(mc,mg,tc,tg){const ok0=mg===tc,ok1=tg===mc,eq=mc===tc;
+      if(ok0)pts[0]++;if(ok1)pts[1]++;if(eq)same++;olog.push({a,b,mc,tc});
+      v.innerHTML='';const sb2=scoreBar(pts);eq?(sfx.good(),vibe([30,30,60])):sfx.pop();
+      const who=k=>[0,1].filter(p=>(p?tc:mc)===k).map(p=>h('div',{class:'cpowho',style:{color:P[p].color}},avatar(p),p?P[1].name:'Ty'));
+      v.append(sb2.el,h('div',{class:'small mut center'},'Pytanie '+(i+1)+'/'+n),
+        h('div',{class:'duo'},[a,b].map((t,k)=>h('div',{class:'card3d '+(k===mc||k===tc?(eq?'pink':'blue'):'dark'),style:{padding:'20px 8px'}},h('div',{class:'w',style:{fontSize:'20px'}},t),...who(k)))),
+        h('div',{class:'cporeact',style:{color:eq?'#ffd0e6':'#dcecff'}},eq?WOL_SAME[i%WOL_SAME.length]:WOL_DIFF[i%WOL_DIFF.length]),
+        h('div',{class:'grid2',style:{marginTop:'4px'}},[[0,ok0],[1,ok1]].map(([p,ok])=>h('div',{class:'chip',style:{justifyContent:'center',textAlign:'center'}},(p?'Strzał: '+P[1].name:'Twój strzał')+' '+(ok?'🎯':'🙈')))),
+        h('button',{class:'btn gold xl wide',style:{marginTop:'12px'},onclick:()=>olWait(NET,K+'n',()=>oq(i+1))},i+1<n?'Dalej':'Wyniki 💞'));}
+  }
+  function oEnd(){const pc=n?Math.round(same/n*100):0;v.innerHTML='';
+    const verdict=pc>=80?'💍 Bratnie dusze!':pc>=60?'💘 Bardzo zgrana para!':pc>=40?'😊 Pół na pół – idealna równowaga!':'🌗 Przeciwieństwa się przyciągają!';
+    v.append(h('div',{class:'panel center'},h('div',{class:'h1'},'Zgodność gustów'),h('div',{class:'big',style:{fontSize:'54px',color:'var(--gold)'}},pc+'%'),h('p',{class:'mut'},verdict),
+        h('p',{},h('span',{style:{color:P[0].color}},'Twoje trafienia: '+pts[0]),' · ',h('span',{style:{color:P[1].color}},P[1].name+': '+pts[1]))),
+      h('div',{class:'panel',style:{marginTop:'10px'}},h('div',{class:'h2'},'Wasze wybory'),...olog.map(x=>h('div',{class:'small',style:{margin:'5px 0'}},x.mc===x.tc?'💞 ':'🌗 ',
+        h('b',{style:{color:P[0].color}},[x.a,x.b][x.mc]),' · ',h('b',{style:{color:P[1].color}},[x.a,x.b][x.tc])))));
+    olFinish(G.id,pts[0]>pts[1]?0:pts[1]>pts[0]?1:null,`Zgodność gustów: ${pc}% · trafienia ${pts[0]} : ${pts[1]}`,again);}
 }});
 /* ---------- PRAWDA CZY WYZWANIE ---------- */
 const PW={
@@ -7212,13 +7311,116 @@ Pocałuj każdy palec jednej dłoni partnera.
 Wybierz dla was wspólną piosenkę na ten tydzień i ustaw ją jako dzwonek.
 Napisz na kartce „Kocham Cię, bo…” i dokończ trzema powodami.
 Przytulcie się czołami i policzcie razem do dziesięciu.
-Wyszeptaj partnerowi do ucha, co najbardziej lubisz w waszych wieczorach.`};
-game({id:'prawda',art:'chmurka',cat:'couple',icon:'🎭',name:'Prawda czy wyzwanie',desc:'Wersja lekka i romantyczna',modes:['duo'],run(v,ctx,restart){
-  const G=this;let lvl='l',n=10;
-  startScreen(v,G,{rules:['Na zmianę wybieracie prawdę albo wyzwanie.','Wykonane zadanie daje punkt, a odmowa nie daje nic.','Tryb romantyczny dorzuca pytania i zadania dla pary.','Pytania nie powtarzają się, dopóki nie przejdziecie całej talii.'],
-    extra:h('div',{},choiceRow([['l','Lekko'],['r','Romantycznie']],'l',x=>lvl=x),choiceRow([[10,'10 kolejek'],[20,'20 kolejek']],10,x=>n=x))},()=>step(0));
+Wyszeptaj partnerowi do ucha, co najbardziej lubisz w waszych wieczorach.`,
+ /* wyzwania „przez internet” – do zrobienia przez rozmowę wideo/głosową albo telefonem (zdjęcie, wiadomość głosowa…) */
+ wlo:`Zaśpiewaj partnerowi refren dowolnej piosenki przez telefon.
+Wyślij partnerowi swoje najdziwniejsze selfie z tej chwili.
+Nagraj wiadomość głosową głosem lektora z filmu przyrodniczego.
+Pokaż do kamery najdziwniejszą rzecz, jaką masz w zasięgu ręki.
+Zrób minę, która najlepiej opisuje poniedziałek, i wyślij jej zdjęcie.
+Opowiedz kawał tak, żeby partner się zaśmiał – masz trzy próby.
+Wyślij partnerowi zdjęcie tego, co masz teraz na nogach.
+Przez 30 sekund mów jak prezenter wiadomości o swoim dzisiejszym dniu.
+Naśladuj głos postaci z bajki – partner zgaduje, kto to.
+Wyślij partnerowi 5 emotek, które opisują twój dzień. Partner musi je odczytać.
+Zatańcz do kamery przez 20 sekund bez muzyki.
+Pokaż do kamery zawartość swojej lodówki albo torby i opowiedz o niej jak przewodnik.
+Zrób zdjęcie widoku z twojego okna i wyślij je partnerowi z romantycznym podpisem.
+Nagraj partnerowi wiadomość głosową śpiewając „Sto lat” – mimo że nie ma urodzin.
+Wymów trzy razy szybko: „Stół z powyłamywanymi nogami”.
+Opowiedz, co dziś jadłeś/aś, jakby to była relacja z meczu.
+Pokaż do kamery swój najlepszy taniec robota.
+Przez minutę odpowiadaj partnerowi tylko pytaniami.
+Wyślij partnerowi zdjęcie ostatniej rzeczy, którą kupiłeś/aś.
+Zrób trzy przysiady, licząc na głos po angielsku.
+Przeczytaj na głos ostatnią wiadomość, jaką wysłałeś/aś (byle nie tajną!).
+Pokaż do kamery swój najgorszy talent.
+Narysuj w minutę portret partnera z pamięci i wyślij mu zdjęcie.
+Zrób z koca albo ręcznika pelerynę superbohatera i przedstaw się do kamery.
+Udawaj przez 30 sekund kota – partner ocenia w skali od 1 do 10.
+Opowiedz bajkę o Czerwonym Kapturku w 30 sekund.
+Wyślij partnerowi GIF-a, który najlepiej cię dziś opisuje.
+Przez minutę mów wyłącznie szeptem.
+Zrób zdjęcie swojej najśmieszniejszej miny i ustaw je na minutę jako tapetę.
+Zagwiżdż albo zanuć melodię – partner zgaduje piosenkę.
+Pokaż do kamery najstarszą rzecz, jaką masz w pokoju, i opowiedz jej historię.
+Przedstaw swój dzień w trzech zdaniach jak zwiastun filmu akcji.
+Zrób pozę modela/modelki z okładki magazynu i wyślij zdjęcie.
+Wymyśl na poczekaniu rymowankę o partnerze i powiedz ją na głos.
+Mów z udawanym akcentem do następnej kolejki.
+Udawaj przez 20 sekund dinozaura, który właśnie się obudził.
+Pokaż do kamery swoje skarpetki i opisz je jak projektant mody.
+Wyślij partnerowi zdjęcie czegoś, co ma kształt serca (albo prawie!).
+Zrób minutowy pokaz kulinarny z tym, co masz pod ręką.
+Napisz partnerowi wiadomość używając wyłącznie emotek – partner tłumaczy.
+Zaśpiewaj ulubioną piosenkę partnera najpiękniej, jak potrafisz.
+Pokaż partnerowi przez kamerę, jak wygląda twój „bałagan dnia”.
+Zrób trzy różne miny – partner zgaduje, jakie emocje pokazujesz.
+Zrób zdjęcie swojej ręki ułożonej w serduszko i wyślij partnerowi.
+Przez 30 sekund chodź po pokoju jak modelka na wybiegu – kamera przodem!
+Opowiedz na głos, co widzisz za oknem, jak komentator sportowy.
+Spróbuj dotknąć językiem nosa przed kamerą.
+Wyślij partnerowi zdjęcie swojego ulubionego kubka.`,
+ wpo:`Wyślij partnerowi wiadomość głosową z trzema powodami, dla których go/ją kochasz.
+Napisz partnerowi krótki wierszyk miłosny i przeczytaj go na głos.
+Wyślij partnerowi swoje najbardziej uśmiechnięte selfie z podpisem „dla Ciebie”.
+Patrzcie sobie w oczy przez kamerę przez 30 sekund bez śmiechu.
+Zaśpiewaj partnerowi fragment romantycznej piosenki.
+Wyślij partnerowi wasze ulubione wspólne zdjęcie i napisz, dlaczego je kochasz.
+Powiedz partnerowi „kocham cię” na 3 sposoby: szeptem, śpiewem i z wielką pompą.
+Opowiedz, gdzie zabrałbyś/zabrałabyś partnera na wymarzoną kolację.
+Wyślij partnerowi buziaka do kamery i nagraj go na wiadomość głosową.
+Powiedz partnerowi, kiedy pierwszy raz ci się spodobał/a.
+Zadedykuj partnerowi piosenkę jak prezenter radiowy i wyślij mu link do niej.
+Zaplanujcie razem waszą najbliższą randkę – z datą i miejscem.
+Daj partnerowi komplement, którego jeszcze nigdy od ciebie nie usłyszał/a.
+Wymień 3 rzeczy, które chcesz zrobić z partnerem, gdy znów się zobaczycie.
+Napisz na kartce „Kocham Cię, bo…”, dokończ trzema powodami i pokaż do kamery.
+Wyślij partnerowi zdjęcie czegoś, co ci się z nim/nią kojarzy.
+Opowiedz partnerowi, jak wyglądałby wasz idealny wspólny poranek.
+Zmień nazwę partnera w telefonie na czułe przezwisko i pokaż mu zrzut ekranu.
+Ustaw wasze wspólne zdjęcie jako tapetę na tydzień i wyślij dowód.
+Opowiedz, jakie śniadanie do łóżka przygotowałbyś/przygotowałabyś partnerowi.
+Narysuj serce na dłoni, wpisz w nie inicjały partnera i pokaż do kamery.
+Zadeklamuj komplement jak zakochany poeta.
+Powiedz partnerowi, czego mu/jej życzysz na najbliższy rok.
+Wyślij partnerowi wiadomość, którą przeczyta jutro rano – z czułym „dzień dobry”.
+Opowiedz partnerowi, co najbardziej lubisz w waszych wieczorach.
+Wybierzcie wspólną piosenkę na ten tydzień i ustawcie ją jako dzwonek.
+Przez minutę wymieniaj, co ci się w partnerze podoba.
+Złóż partnerowi uroczyste życzenia „z okazji bycia wspaniałym”.
+Wyślij partnerowi trzy emotki, które opisują twoje uczucia do niego/niej.
+Opowiedz, jak wyglądałaby wasza pierwsza randka, gdybyście mogli ją powtórzyć.
+Wyślij partnerowi zdjęcie swojej dłoni ułożonej w serduszko.
+Przytul do kamery poduszkę tak, jakby to był partner.
+Powiedz partnerowi, za czym w nim/niej najbardziej tęsknisz, gdy nie jesteście razem.
+Wyszeptaj do mikrofonu ulubione zdrobnienie partnera.
+Obiecaj partnerowi jedną drobną przysługę na wasze następne spotkanie.
+Podziękuj partnerowi za jedną rzecz z dzisiejszego dnia.
+Powiedz partnerowi, czego się od niego/niej nauczyłeś/aś.
+Wyślij partnerowi nagranie, na którym mówisz „dobranoc” najczulej, jak umiesz.
+Opowiedz partnerowi swój ulubiony sen o was (albo wymyśl go teraz).
+Wybierz film na waszą następną wspólną randkę i opowiedz, dlaczego właśnie ten.
+Napisz partnerowi SMS-a w stylu listu miłosnego z XIX wieku.
+Powiedz, jakim zapachem pachnie dla ciebie partner.
+Zróbcie sobie jednocześnie zrzut ekranu z rozmowy wideo – najładniejszy wygrywa.
+Wyślij partnerowi piosenkę, która przypomina ci wasz pierwszy wspólny miesiąc.
+Opowiedz, co dziś pierwsze pomyślałeś/aś o partnerze po przebudzeniu.
+Zaplanujcie razem waszą idealną niedzielę we dwoje.
+Wyślij partnerowi zdjęcie miejsca, w którym chciałbyś/chciałabyś się z nim/nią teraz znaleźć.
+Zrób minę „zakochanego szczeniaczka” do kamery i wytrzymaj 10 sekund.`};
+game({id:'prawda',art:'chmurka',cat:'couple',icon:'🎭',name:'Prawda czy wyzwanie',desc:'Wersja lekka i romantyczna',modes:['duo','online'],run(v,ctx,restart){
+  const G=this;let lvl='l',n=10,NET=null,BOX=null,GN=0,starter=0;
+  const again=()=>ONLINE()?NET.again():restart();
+  olStart(v,G,{rules:m=>m==='online'?['Gracie na dwóch telefonach – najlepiej z włączoną rozmową wideo albo głosową 📞.','Na zmianę: osoba, której jest kolej, wybiera na swoim telefonie prawdę albo wyzwanie – karta pokazuje się u obojga.','Wyzwania są „na odległość”: zdjęcie, wiadomość głosowa, piosenka do kamery…','Partner zatwierdza „Wykonane ✓” (punkt) albo „Pas ✗”. Poziom wybiera osoba tworząca pokój.']
+      :['Na zmianę wybieracie prawdę albo wyzwanie.','Wykonane zadanie daje punkt, a odmowa nie daje nic.','Tryb romantyczny dorzuca pytania i zadania dla pary.','Pytania nie powtarzają się, dopóki nie przejdziecie całej talii.'],
+    extra:h('div',{},choiceRow([['l','Lekko'],['r','Romantycznie']],'l',x=>lvl=x),choiceRow([[10,'10 kolejek'],[20,'20 kolejek']],10,x=>n=x))},
+    m=>m==='online'?onlineLobby(v,ctx,G,{back:restart,onReady:net=>{NET=net;BOX=cpoBox(net);
+        net.round(info=>{const o=info.opt||{};GN++;lvl=o.lvl==='r'?'r':'l';n=[10,20].includes(o.n)?o.n:10;pts[0]=pts[1]=0;starter=info.starter;ostep(0);},()=>({lvl,n}));}})
+      :step(0));
   const pts=[0,0];let cur=rnd(2);const D={};
-  const draw=t=>{const k=t+(lvl==='r'&&Math.random()<.6?'p':'l');D[k]=D[k]||deck('prawda_'+k,PW[k].split('\n'));return D[k].next();};
+  /* online: wyzwania tylko z talii „na odległość” (wlo/wpo); prawdy jak zwykle */
+  const draw=t=>{let k=t+(lvl==='r'&&Math.random()<.6?'p':'l');if(t==='w'&&ONLINE())k+='o';D[k]=D[k]||deck('prawda_'+k,PW[k].split('\n'));return D[k].next();};
   function step(i){if(i>=n)return finish(G.id,pts[0]>pts[1]?0:pts[1]>pts[0]?1:null,`Wykonane: ${pts[0]} : ${pts[1]}`,restart);
     v.innerHTML='';const sb=scoreBar(pts);sb.turn(cur);
     v.append(sb.el,h('div',{class:'turn'},'Kolej: ',h('span',{style:{color:P[cur].color}},P[cur].name),` · ${i+1}/${n}`),
@@ -7226,6 +7428,28 @@ game({id:'prawda',art:'chmurka',cat:'couple',icon:'🎭',name:'Prawda czy wyzwan
     function show(t){const c=draw(t);v.lastChild.remove();say(c);
       v.append(h('div',{class:'card3d '+(t==='p'?'blue':'pink')},h('div',{class:'lab',style:{color:'#fff'}},t==='p'?'Prawda':'Wyzwanie'),h('div',{class:'w',style:{fontSize:'22px',textTransform:'none',lineHeight:1.3}},c)),
         h('div',{class:'grid2',style:{marginTop:'14px'}},h('button',{class:'btn green xl',onclick:()=>{pts[cur]++;sfx.good();cur=1-cur;step(i+1);}},'✓ Zrobione'),h('button',{class:'btn dark xl',onclick:()=>{sfx.bad();cur=1-cur;step(i+1);}},'Pas')));}
+  }
+  /* ---- ONLINE: kolej jednej osoby, karta u obojga, partner zatwierdza ---- */
+  function ostep(i){if(i>=n)return olFinish(G.id,pts[0]>pts[1]?0:pts[1]>pts[0]?1:null,`Wykonane: ${pts[0]} : ${pts[1]}`,again);
+    const c0=i%2===0?starter:1-starter,K=GN+'p'+i;
+    v.innerHTML='';const sb=scoreBar(pts);sb.turn(c0);const body=h('div',{});
+    v.append(sb.el,h('div',{class:'turn'},c0===0?'Twoja kolej!':h('span',{},'Kolej: ',h('span',{style:{color:P[1].color}},P[1].name)),` · ${i+1}/${n}`),body);
+    const show=(t,c)=>{if(!body.isConnected||body.dataset.c)return;body.dataset.c=1;t=t==='w'?'w':'p';c=cpoStr(c,400);body.innerHTML='';say(c);sfx.pop();
+      const res=h('div',{});
+      body.append(h('div',{class:'card3d '+(t==='p'?'blue':'pink')},h('div',{class:'lab',style:{color:'#fff'}},(t==='p'?'🤫 Prawda':'🔥 Wyzwanie')+' · '+(c0===0?'dla Ciebie':P[1].name)),h('div',{class:'w',style:{fontSize:'22px',textTransform:'none',lineHeight:1.3}},c)),res);
+      const done=ok=>{res.innerHTML='';if(ok){pts[c0]++;sb.set(pts);sfx.good();vibe([30,30,60]);}else sfx.bad();
+        res.append(h('div',{class:'cporeact',style:{color:ok?'#7ff0b0':'#ffd0e6'}},ok?['✓ Wykonane!','🔥 Brawo!','💘 Zaliczone!'][i%3]:['🙈 Pas!','😅 Tym razem pas','🤐 Pas – bez punktu'][i%3]),
+          ok?h('p',{class:'center small mut'},c0===0?'+1 punkt dla Ciebie':`${P[1].name} +1 punkt`):null);
+        ctx.after(()=>ostep(i+1),1700);};
+      if(c0===1)res.append(h('p',{class:'center mut',style:{marginTop:'12px'}},`${P[1].name} ${t==='p'?'odpowiada':'wykonuje zadanie'} – oceń!`),
+        h('div',{class:'grid2'},h('button',{class:'btn green xl',onclick:()=>{if(res.dataset.d)return;res.dataset.d=1;BOX.put(K+'v',true);done(true);}},t==='p'?'✓ Zaliczam':'✓ Wykonane'),
+          h('button',{class:'btn dark xl',onclick:()=>{if(res.dataset.d)return;res.dataset.d=1;BOX.put(K+'v',false);done(false);}},'✗ Pas')));
+      else{res.append(h('p',{class:'center mut',style:{marginTop:'12px'}},t==='p'?'Odpowiedz szczerze – na głos albo w wiadomości 😉':'Do dzieła! 📸🎤'),cpoSpin(`${P[1].name} zatwierdzi, czy wykonane…`));BOX.wait(K+'v',ok=>done(!!ok));}};
+    if(c0===0)body.append(h('div',{class:'duo'},['p','w'].map(t=>h('button',{class:'btn xl opt '+(t==='p'?'blue':'red'),onclick:()=>{if(body.dataset.p)return;body.dataset.p=1;
+      if(NET.isHost){const c=draw(t);BOX.put(K+'c',{t,c});show(t,c);}else{BOX.put(K+'p',t);body.innerHTML='';body.append(cpoSpin('Losuję kartę…'));}}},t==='p'?'🤫 Prawda':'🔥 Wyzwanie'))));
+    else body.append(h('div',{class:'panel center'},avatar(1,'64px'),h('p',{},`${P[1].name} wybiera: prawda czy wyzwanie?`),cpoSpin('Czekam…')));
+    if(NET.isHost){if(c0===1)BOX.wait(K+'p',t=>{t=t==='w'?'w':'p';const c=draw(t);BOX.put(K+'c',{t,c});show(t,c);});}
+    else BOX.wait(K+'c',d=>{d=d||{};show(d.t,d.c);});
   }
 }});
 /* ---------- NIGDY PRZENIGDY ---------- */
@@ -7637,9 +7861,17 @@ udawałem/am, że śpię, żeby nie wstawać
 poprawiałem/am fryzury przed wideorozmową przez 10 minut
 umyłem/am zębów kremem do rąk przez pomyłkę
 zjadłem/am karmy dla zwierząt z ciekawości`.split('\n');
-game({id:'nigdy',art:'chmurka',cat:'couple',icon:'🙊',name:'Nigdy przenigdy',desc:'Kto z was to zrobił?',modes:['duo'],run(v,ctx,restart){
-  const G=this;let n=15;
-  startScreen(v,G,{rules:['Czytacie zdanie „Nigdy przenigdy nie…”.','Każde z was zaznacza, czy już to zrobiło.','Na koniec zobaczycie, kto ma bogatsze doświadczenia 😉'],extra:choiceRow([[10,'10 kart'],[15,'15 kart'],[25,'25 kart']],15,x=>n=x)},()=>{cards=deck('nigdy',NEVER).take(n);step(0);});
+game({id:'nigdy',art:'chmurka',cat:'couple',icon:'🙊',name:'Nigdy przenigdy',desc:'Kto z was to zrobił?',modes:['duo','online'],run(v,ctx,restart){
+  const G=this;let n=15,NET=null,GN=0;
+  const again=()=>ONLINE()?NET.again():restart();
+  olStart(v,G,{rules:m=>m==='online'?['To samo zdanie „Nigdy przenigdy nie…” pojawia się na obu telefonach.','Każde z was w sekrecie stuka: „Zrobiłem/am” albo „Nigdy”.','Odpowiedzi odkrywają się razem – i zaczyna się opowiadanie historii 😉','Każde „zrobione” to punkt przeżyć. Na koniec zobaczycie, kto ma bogatsze doświadczenia!']
+      :['Czytacie zdanie „Nigdy przenigdy nie…”.','Każde z was zaznacza, czy już to zrobiło.','Na koniec zobaczycie, kto ma bogatsze doświadczenia 😉'],
+    extra:choiceRow([[10,'10 kart'],[15,'15 kart'],[25,'25 kart']],15,x=>n=x)},
+    m=>m==='online'?onlineLobby(v,ctx,G,{back:restart,onReady:net=>{NET=net;
+        net.round(info=>{const o=info.opt||{};GN++;cards=(o.c||[]).map(i=>NEVER[i]).filter(Boolean);n=Math.min([10,15,25].includes(o.n)?o.n:15,cards.length);pts[0]=pts[1]=0;both=none=0;ostep(0);},
+          ()=>({n,c:deck('nigdy',NEVER).take(n).map(x=>NEVER.indexOf(x))}));}})
+      :(cards=deck('nigdy',NEVER).take(n),step(0)));
+  let both=0,none=0;
   const pts=[0,0];let cards=[];
   function step(i){if(i>=n){const w=pts[0]>pts[1]?0:pts[1]>pts[0]?1:null;sfx.win();confetti();
       return modal('Podsumowanie',h('div',{class:'center'},h('div',{class:'trophy'},'😏'),h('p',{class:'big'},h('span',{style:{color:P[0].color}},pts[0]),' : ',h('span',{style:{color:P[1].color}},pts[1])),
@@ -7650,6 +7882,33 @@ game({id:'nigdy',art:'chmurka',cat:'couple',icon:'🙊',name:'Nigdy przenigdy',d
       h('div',{class:'grid2',style:{marginTop:'14px'}},tg(0),tg(1)),
       h('button',{class:'btn gold xl wide',style:{marginTop:'12px'},onclick:()=>{did.forEach((d,k)=>{if(d)pts[k]++;});sfx.pop();step(i+1);}},'Następna karta'));
   }
+  /* ---- ONLINE: każde stuka w sekrecie, odkrywamy razem ---- */
+  const NG_BOTH=['🤝 Oboje! Opowiadajcie!','😂 No proszę – para idealna!','👯 Razem w tym siedzicie!','🍿 Każde ma swoją historię – słuchamy!'];
+  const NG_NONE=['😇 Czyste konto u obojga!','👼 Dwa aniołki!','🧼 Nikt, nigdy, przenigdy!','🌱 Może kiedyś… razem?'];
+  function ostep(i){if(i>=n)return oEnd();
+    const c=cards[i],K=GN+'n'+i;v.innerHTML='';const sb=scoreBar(pts),bd=olBadge(),box=h('div',{});
+    say('Nigdy przenigdy nie '+c.replace(/(\S+)\/\S+/g,'$1'));
+    v.append(sb.el,h('div',{class:'card3d dark'},h('div',{class:'lab',style:{color:'#f7c948'}},'Nigdy przenigdy nie…'),h('div',{class:'w',style:{fontSize:'24px',textTransform:'none',lineHeight:1.3}},c),h('div',{class:'small mut'},(i+1)+' / '+n)),box,bd.el);
+    NET.onPeer(K,()=>bd.set(`🔒 ${P[1].name} już ${isPyniu(1)?'wybrała':'wybrał(a)'}!`,'good'));
+    const did0=cpoF(0,'Zrobiłem','Zrobiłam','Zrobiłem/am');
+    box.append(h('p',{class:'center mut',style:{margin:'12px 0 6px'}},'A Ty? Partner nie widzi, co klikasz 🤫'),
+      h('div',{class:'grid2'},h('button',{class:'btn xl green',style:{whiteSpace:'nowrap',fontSize:'17px'},onclick:()=>pickIt(true)},'🙋 '+did0),h('button',{class:'btn xl dark',onclick:()=>pickIt(false)},'🙅 Nigdy')));
+    function pickIt(d){if(box.dataset.d)return;box.dataset.d=1;sfx.click();box.innerHTML='';
+      box.append(h('div',{class:'cpolock'},h('div',{class:'small mut'},'🔒 Twoja odpowiedź'),h('div',{class:'big'},d?'🙋 '+did0:'🙅 Nigdy'),NET.peerIn(K)?null:cpoSpin(`Czekam na ${P[1].name}…`)));
+      NET.sync(K,!!d,(m,t)=>reveal(!!m,t===true));}
+    function reveal(m,t){const d=[m,t];d.forEach((x,k)=>{if(x)pts[k]++;});if(m&&t)both++;if(!m&&!t)none++;sb.set(pts);
+      box.innerHTML='';bd.set('');(m||t)?sfx.good():sfx.pop();
+      box.append(h('div',{class:'cpoans'},[0,1].map(k=>h('div',{style:{'--pc':P[k].color,textAlign:'center'}},h('div',{class:'cpowho',style:{color:P[k].color}},avatar(k),k?P[1].name:'Ty'),
+          h('div',{class:'big'},d[k]?'🙋 '+cpoF(k,'Robił','Robiła','Robił(a)'):'🙅 Nigdy')))),
+        h('div',{class:'cporeact',style:{color:'#ffd0e6'}},m&&t?pick(NG_BOTH):!m&&!t?pick(NG_NONE):m?'😏 Tylko Ty! Opowiadaj!':`😏 Tylko ${P[1].name}! Niech opowiada!`),
+        h('button',{class:'btn gold xl wide',onclick:()=>olWait(NET,K+'x',()=>ostep(i+1))},i+1<n?'Następna karta':'Podsumowanie'));}
+  }
+  function oEnd(){const w=pts[0]>pts[1]?0:pts[1]>pts[0]?1:null;v.innerHTML='';
+    v.append(h('div',{class:'panel center'},h('div',{class:'trophy'},'😏'),h('div',{class:'h1'},'Podsumowanie'),
+      h('p',{class:'big'},h('span',{style:{color:P[0].color}},pts[0]),' : ',h('span',{style:{color:P[1].color}},pts[1])),
+      h('p',{class:'mut'},w==null?'Jesteście siebie warci!':w===0?'Więcej przeżyć masz Ty! 😎':`Więcej przeżyć ma ${P[1].name}!`),
+      h('div',{class:'row wrap',style:{justifyContent:'center',gap:'6px'}},h('span',{class:'chip'},'🤝 oboje: '+both),h('span',{class:'chip'},'😇 nikt: '+none))));
+    olFinish(G.id,null,`Przeżycia: ${pts[0]} : ${pts[1]} · wspólne: ${both}`+(w==null?' · Jesteście siebie warci!':w===0?' · Więcej przeżyć masz Ty!':` · Więcej przeżyć ma ${P[1].name}!`),again);}
 }});
 /* ---------- QUIZ O NAS ---------- */
 /* szablony pytań – autor pisze je o sobie, partner odpowiada */
@@ -7846,9 +8105,16 @@ css(`.qonhub{display:grid;gap:12px}
 .qonbar{height:16px;border-radius:9px;background:rgba(0,0,0,.25);overflow:hidden;margin:6px 0 2px}.qonbar i{display:block;height:100%;border-radius:9px;transition:width 1s}
 .qonfield{margin-top:10px}.qonfield label{display:block;font:800 12px Nunito;letter-spacing:.06em;text-transform:uppercase;opacity:.85;margin:0 0 4px 2px}`);
 
-game({id:'quizonas',art:'chmurka',cat:'couple',icon:'💞',name:'Quiz o nas',desc:'Ułóż quiz o sobie – sprawdź, kto lepiej zna drugą połówkę',modes:['duo'],run(v,ctx,restart){
-  const G=this;
-  startScreen(v,G,{rules:['Przygotowanie: każde z was w sekrecie układa quiz o sobie – z gotowych podpowiedzi (ponad 150!) albo z własnych pytań.','Wpisz (albo powiedz 🎤) poprawną odpowiedź. Jeśli dodasz 3 błędne – pytanie będzie typu ABCD.','Quizy zapisują się w telefonie – można je przygotować wcześniej i zagrać kiedy indziej.','Gra: odpowiadacie na zmianę na pytania z quizu partnera. Odpowiedź otwarta = 2 pkt, ABCD = 1 pkt.','Kto lepiej zna drugą połówkę? 💞'],btn:'Dalej'},()=>hub());
+game({id:'quizonas',art:'chmurka',cat:'couple',icon:'💞',name:'Quiz o nas',desc:'Ułóż quiz o sobie – sprawdź, kto lepiej zna drugą połówkę',modes:['duo','online'],run(v,ctx,restart){
+  const G=this;let NET=null,BOX=null,GN=0,nq=8;
+  const again=()=>ONLINE()?NET.again():restart();
+  olStart(v,G,{rules:m=>m==='online'?['Każde ma swój quiz o sobie zapisany we własnym telefonie. Nie masz jeszcze quizu? Ułożysz go szybko przed grą (min. 3 pytania).','Na starcie wymieniacie się quizami – partner dostaje same pytania, bez odpowiedzi 🤫','Odpowiadacie jednocześnie, każde na swoim telefonie, na pytania z quizu drugiej osoby.','Twój telefon sprawdza odpowiedzi partnera: ABCD od razu, a otwarte – podpowiadam, ale to Ty decydujesz „Zaliczam”. Otwarta = 2 pkt, ABCD = 1 pkt.']
+      :['Przygotowanie: każde z was w sekrecie układa quiz o sobie – z gotowych podpowiedzi (ponad 150!) albo z własnych pytań.','Wpisz (albo powiedz 🎤) poprawną odpowiedź. Jeśli dodasz 3 błędne – pytanie będzie typu ABCD.','Quizy zapisują się w telefonie – można je przygotować wcześniej i zagrać kiedy indziej.','Gra: odpowiadacie na zmianę na pytania z quizu partnera. Odpowiedź otwarta = 2 pkt, ABCD = 1 pkt.','Kto lepiej zna drugą połówkę? 💞'],
+    extra:m=>m==='online'?h('div',{},h('div',{class:'mut small center'},'Pytań w grze dla każdego'),choiceRow([[5,'5'],[8,'8'],[12,'12'],[99,'Wszystkie']],nq,x=>nq=x)):null,btn:'Dalej'},
+    m=>m==='online'?onlineLobby(v,ctx,G,{back:restart,onReady:net=>{NET=net;BOX=cpoBox(net);
+        net.round(info=>{const o=info.opt||{};GN++;onq=[5,8,12,99].includes(o.nq)?o.nq:8;pts[0]=pts[1]=mx[0]=mx[1]=hits[0]=hits[1]=0;log.length=0;oHub();},()=>({nq}));}})
+      :hub());
+  let onq=8;
   /* ---- ekran główny: quizy obu graczy ---- */
   function hub(){v.innerHTML='';const L=[qonGet(0),qonGet(1)];
     const ready=L.every(l=>l.length>=3);
@@ -7859,9 +8125,9 @@ game({id:'quizonas',art:'chmurka',cat:'couple',icon:'💞',name:'Quiz o nas',des
       h('div',{class:'col',style:{marginTop:'16px',gap:'10px'}},
         ready?h('div',{},h('div',{class:'mut small center'},'Pytań w grze dla każdego'),choiceRow([[5,'5'],[8,'8'],[12,'12'],[99,'Wszystkie']],nq,x=>nq=x)):null,
         h('button',{class:'btn gold xl wide'+(ready?'':' dis'),onclick:()=>ready?startGame():toast('Najpierw oboje ułóżcie min. 3 pytania')},'🎮 Gramy!')));}
-  let nq=8;
+
   /* ---- edytor quizu gracza i ---- */
-  function editor(i){v.innerHTML='';const L=qonGet(i);
+  function editor(i,back){back=back||hub;v.innerHTML='';const L=qonGet(i);
     const list=h('div',{class:'qonlist'});
     const draw=()=>{list.innerHTML='';if(!L.length)list.append(h('p',{class:'center mut'},'Brak pytań. Dodaj pierwsze! 👇'));
       L.forEach((q,k)=>list.append(h('div',{class:'qonq'},h('div',{class:'t'},h('b',{},(k+1)+'. '+q.q),h('span',{},'✓ '+q.a),q.w&&q.w.length?h('span',{class:'k'},'ABCD'):null),
@@ -7870,7 +8136,7 @@ game({id:'quizonas',art:'chmurka',cat:'couple',icon:'💞',name:'Quiz o nas',des
     draw();
     v.append(h('div',{class:'row'},avatar(i,'44px'),h('div',{class:'grow'},h('div',{class:'h2',style:{margin:0}},'Quiz o: '+P[i].name),h('div',{class:'small mut'},'Tylko ty widzisz odpowiedzi 🤫'))),
       h('div',{class:'row',style:{margin:'12px 0'}},h('button',{class:'btn pink grow',onclick:()=>edit(-1)},'➕ Dodaj pytanie'),h('button',{class:'btn teal grow',onclick:()=>edit(-1,true)},'🎲 Losowe pytanie')),
-      list,h('button',{class:'btn gold xl wide',style:{marginTop:'14px'},onclick:()=>{sfx.good();hub();}},'✓ Gotowe – schowaj quiz'));
+      list,h('button',{class:'btn gold xl wide',style:{marginTop:'14px'},onclick:()=>{sfx.good();back();}},'✓ Gotowe – schowaj quiz'));
     /* edycja jednego pytania; k=-1 nowe */
     function edit(k,rand){const q=k>=0?{...L[k],w:[...(L[k].w||[])]}:{q:'',a:'',w:[]};
       const used=new Set(L.map(x=>x.q));
@@ -7894,14 +8160,14 @@ game({id:'quizonas',art:'chmurka',cat:'couple',icon:'💞',name:'Quiz o nas',des
         tpl,row('Poprawna odpowiedź ✓',ai,true),
         h('div',{class:'qonfield'},h('label',{},'Błędne odpowiedzi (opcjonalnie – wtedy ABCD)'),...wi),
         h('p',{class:'small mut'},'💡 Bez błędnych odpowiedzi partner odpowiada własnymi słowami (za 2 pkt).'),
-        h('div',{class:'row',style:{marginTop:'12px'}},h('button',{class:'btn dark grow',onclick:()=>editor(i)},'Anuluj'),
+        h('div',{class:'row',style:{marginTop:'12px'}},h('button',{class:'btn dark grow',onclick:()=>editor(i,back)},'Anuluj'),
           h('button',{class:'btn gold grow xl',onclick:save},'💾 Zapisz')));
       if(!q.q)qi.focus();
       function save(){const nq={q:qi.value.trim(),a:ai.value.trim(),w:wi.map(e=>e.value.trim()).filter(Boolean)};
         if(!nq.q)return toast('Wpisz pytanie');if(!nq.a)return toast('Wpisz poprawną odpowiedź');
         if(nq.w.some(x=>norm(x)===norm(nq.a)))return toast('Błędna odpowiedź nie może być taka jak poprawna');
         nq.id=q.id||Date.now().toString(36)+rnd(1e4);
-        if(k>=0)L[k]=nq;else L.push(nq);qonSet(i,L);sfx.good();toast('Zapisano ✓');editor(i);}
+        if(k>=0)L[k]=nq;else L.push(nq);qonSet(i,L);sfx.good();toast('Zapisano ✓');editor(i,back);}
     }
   }
   /* ---- gra ---- */
@@ -7951,9 +8217,70 @@ game({id:'quizonas',art:'chmurka',cat:'couple',icon:'💞',name:'Quiz o nas',des
         h('div',{class:'qonbar'},h('i',{style:{width:'0%',background:P[i].color}})),h('div',{class:'small mut'},`${hits[i]} trafień · ${pts[i]}/${mx[i]} pkt · ${verdict(pc[i])}`)))),
       h('div',{class:'panel',style:{padding:'12px',marginTop:'12px'}},h('div',{class:'h2'},'📝 Wszystkie odpowiedzi'),
         log.map(x=>h('div',{class:'small',style:{margin:'6px 0'}},h('b',{},(x.ok?'✅ ':'❌ ')+x.q),h('br'),h('span',{class:'mut'},`${P[x.g].name}: ${x.given} · poprawnie: ${x.a}`)))),
-      h('button',{class:'btn gold xl wide',style:{marginTop:'12px'},onclick:()=>finish(G.id,w,w==null?`Remis ${pc[0]}% : ${pc[1]}% – znacie się tak samo dobrze! 💞`:`${P[w].name} zna drugą połówkę na ${pc[w]}%! (${pc[0]}% : ${pc[1]}%)`,restart)},'🏆 Wynik'));
+      h('button',{class:'btn gold xl wide',style:{marginTop:'12px'},onclick:()=>(ONLINE()?olFinish:finish)(G.id,w,w==null?`Remis ${pc[0]}% : ${pc[1]}% – znacie się tak samo dobrze! 💞`:`${P[w].name} zna drugą połówkę na ${pc[w]}%! (${pc[0]}% : ${pc[1]}%)`,again)},'🏆 Wynik'));
     ctx.after(()=>v.querySelectorAll('.qonbar i').forEach((e,i)=>e.style.width=pc[i]+'%'),100);
     sfx.win();}
+  /* ---- ONLINE: wymiana quizów (bez odpowiedzi!) i odpowiadanie jednocześnie ---- */
+  function oHub(){v.innerHTML='';const L=qonGet(0),ready=L.length>=3,bd=olBadge(),K=GN+'qq';
+    v.append(h('div',{class:'h1'},'💞 Quiz o nas'),h('p',{class:'center mut small'},'Twój quiz jest tylko w Twoim telefonie. Potrzebujesz min. 3 pytań o sobie.'),
+      h('div',{class:'qonhub'},h('div',{class:'qoncard',style:{'--pc':P[0].color}},avatar(0),
+        h('div',{class:'grow'},h('div',{class:'nm'},'Quiz o: '+P[0].name),h('div',{class:'ct'},L.length?`${L.length} ${L.length===1?'pytanie':L.length<5?'pytania':'pytań'} · ${L.filter(q=>q.w&&q.w.length).length} ABCD`:'Jeszcze pusty – czas go ułożyć!')),
+        h('button',{class:'btn sm '+(ready?'dark':'pink'),onclick:()=>editor(0,oHub)},L.length?'✏️ Edytuj':'➕ Ułóż')),
+        h('div',{class:'qoncard',style:{'--pc':P[1].color,opacity:.9}},avatar(1),h('div',{class:'grow'},h('div',{class:'nm'},'Quiz o: '+P[1].name),h('div',{class:'ct'},NET.peerIn(K)?'✅ Gotowy – czeka na Ciebie!':'⏳ W przygotowaniu…')))),
+      bd.el,
+      h('div',{class:'small mut center',style:{marginTop:'10px'}},`Pytań w grze: ${onq===99?'wszystkie':'do '+onq} dla każdego (ustawia osoba tworząca pokój)`),
+      h('button',{class:'btn gold xl wide'+(ready?'':' dis'),style:{marginTop:'12px'},onclick:()=>ready?send():toast('Najpierw ułóż min. 3 pytania o sobie')},'🎮 Mój quiz gotowy – gramy!'));
+    NET.onPeer(K,()=>{bd.set(`✅ ${P[1].name} ma już gotowy quiz!`,'good');const c=$$('.qoncard .ct',v)[1];if(c)c.textContent='✅ Gotowy – czeka na Ciebie!';});
+    function send(){const l=qonGet(0);const Q=deck('quizonas_'+qonKey(0),l,x=>hid(x.q)).take(Math.min(onq,l.length));
+      /* partnerowi idą same pytania (ABCD: przetasowane opcje bez zaznaczenia poprawnej) */
+      const pub=Q.map(q=>({q:cpoStr(q.q,200),o:q.w&&q.w.length?shuffle([q.a,...q.w]).map(x=>cpoStr(x,80)):null}));
+      let ov=null;
+      NET.sync(K,pub,(m,t)=>{if(ov)ov.remove();t=Array.isArray(t)?t.filter(x=>x&&typeof x.q==='string').map(x=>({q:cpoStr(x.q,200),o:Array.isArray(x.o)&&x.o.length>1?x.o.slice(0,4).map(y=>cpoStr(y,80)):null})):[];
+        const n=Math.min(Q.length,t.length);if(!n){toast('Coś poszło nie tak z quizem 😕');return oHub();}oAsk(Q.slice(0,n),t.slice(0,n),0);});
+      if(!NET.peerIn(K))ov=overlay(h('div',{class:'modal'},h('img',{class:'winfig',src:IMG.p_think,alt:''}),h('div',{class:'h1'},'Twój quiz gotowy 🔒'),
+        h('p',{class:'mut'},`${P[1].name} jeszcze układa swój quiz. Zaczniemy, gdy będzie gotowy!`),cpoSpin('Czekam…')),'olwait');}
+  }
+  function oAsk(MY,TH,k){if(k>=MY.length)return summary();
+    const q=TH[k],mq=MY[k],K=GN+'q'+k,abcd=!!q.o,mAbcd=!!(mq.w&&mq.w.length),val=abcd?1:2,mval=mAbcd?1:2;let meDone=false,thDone=false;
+    v.innerHTML='';const sb=SB=scoreBar(pts);say(q.q);
+    const top=h('div',{}),mid=h('div',{}),bot=h('div',{class:'panel',style:{padding:'12px',marginTop:'12px'}}),nx=h('div',{});
+    v.append(sb.el,h('div',{class:'small mut center'},`Pytanie ${k+1}/${MY.length} · odpowiadacie oboje naraz`),
+      h('div',{class:'card3d '+(isPyniu(1)?'pink':'blue'),style:{marginTop:'8px'}},h('div',{class:'lab',style:{color:'#fff',opacity:.85}},`Quiz o: ${P[1].name} · ${abcd?'ABCD · 1 pkt':'odpowiedź otwarta · 2 pkt'}`),
+        h('div',{class:'w',style:{fontSize:'23px',textTransform:'none'}},q.q)),top,mid,bot,nx);
+    const fin=()=>{if(!meDone||!thDone||nx.childNodes.length)return;nx.append(h('button',{class:'btn gold xl wide',style:{marginTop:'12px'},onclick:()=>olWait(NET,K+'n',()=>oAsk(MY,TH,k+1))},k+1<MY.length?'Dalej':'Podsumowanie 💞'));ctx.after(()=>nx.scrollIntoView({behavior:'smooth',block:'nearest'}),300);};
+    /* 1) moja odpowiedź na pytanie partnera */
+    const submit=(t,alts,btn)=>{if(top.dataset.d)return;top.dataset.d=1;try{_rec&&_rec.abort();}catch(e){}t=cpoStr(t);
+      if(!abcd){top.innerHTML='';top.append(h('div',{class:'cpolock'},h('div',{class:'small mut'},'🔒 Twoja odpowiedź'),h('div',{class:'big'},t)));}
+      else[...top.querySelectorAll('.btn')].forEach(b=>{if(b!==btn)b.classList.add('dis');else b.classList.add('sel');});
+      mid.append(cpoSpin(`${P[1].name} sprawdza Twoją odpowiedź…`));if(bot.querySelector('.btn'))ctx.after(()=>bot.scrollIntoView({behavior:'smooth',block:'nearest'}),150);
+      BOX.put(K+'a',{t,alts:(alts||[]).slice(0,5).map(x=>cpoStr(x))});
+      BOX.wait(K+'v',d=>{d=d&&typeof d==='object'?d:{};const ok=!!d.ok,ca=cpoStr(d.a)||'?';mid.innerHTML='';
+        mx[0]+=val;if(ok){pts[0]+=val;hits[0]++;sfx.good();vibe([30,30,60]);}else{sfx.bad();vibe(80);}sb.set(pts);
+        log.push({g:0,q:q.q,a:ca,given:t,ok});
+        if(abcd)[...top.querySelectorAll('.btn')].forEach(b=>{if(b.dataset.o===ca)b.className='btn wide ok';else if(b===btn)b.className='btn wide no';});
+        mid.append(h('div',{class:'qonreact',style:{color:ok?'#7ff0b0':'#ffd0e6'}},pick(ok?QON_OK:QON_BAD)),h('p',{class:'center small mut'},ok?`+${val} pkt dla Ciebie`:`Poprawnie: ${ca}`));
+        meDone=true;fin();if(!thDone)ctx.after(()=>bot.scrollIntoView({behavior:'smooth',block:'nearest'}),300);});};
+    if(abcd){const box=h('div',{class:'qonopts'},q.o.map((o,j)=>h('button',{class:'btn dark wide','data-o':o,onclick:e=>submit(o,[o],e.currentTarget)},h('b',{},'ABCD'[j]),o)));top.append(box);}
+    else{const vi=voiceInput((t,alts)=>submit(t,alts),{placeholder:'Twoja odpowiedź – wpisz albo powiedz 🎤',btn:'OK'});
+      top.append(h('div',{style:{marginTop:'14px'}},vi.el),h('button',{class:'btn ghost sm',style:{margin:'10px auto 0',display:'block'},onclick:()=>submit('—',[])},'Nie mam pojęcia 🤷'));vi.focus();}
+    /* 2) partner odpowiada na MOJE pytanie – mój telefon sprawdza */
+    bot.append(h('div',{class:'small mut'},`📝 ${P[1].name} odpowiada na Twoje pytanie:`),h('b',{},mq.q),cpoSpin('Czekam na odpowiedź…'));
+    BOX.wait(K+'a',d=>{d=d&&typeof d==='object'?d:{};const t=cpoStr(d.t)||'—',alts=Array.isArray(d.alts)?d.alts.slice(0,5).map(x=>cpoStr(x)):[];
+      const verdict=ok=>{if(bot.dataset.v)return;bot.dataset.v=1;BOX.put(K+'v',{ok,a:mq.a});mx[1]+=mval;if(ok){pts[1]+=mval;hits[1]++;}sb.set(pts);log.push({g:1,q:mq.q,a:mq.a,given:t,ok});
+        bot.innerHTML='';bot.append(h('div',{class:'small mut'},`📝 Twoje pytanie: ${mq.q}`),h('div',{style:{marginTop:'4px'}},h('b',{style:{color:P[1].color}},P[1].name+': '),t,' ',ok?'✅':'❌'),
+          ok?h('div',{class:'small',style:{color:'#7ff0b0'}},`${P[1].name} +${mval} pkt`):h('div',{class:'small mut'},'Poprawnie: '+mq.a));
+        thDone=true;fin();};
+      bot.innerHTML='';
+      if(mAbcd)return verdict(t===mq.a);
+      const auto=alts.length>0&&t!=='—'&&(isMatch(alts,[mq.a])||isMatch([mq.a],alts));
+      bot.append(h('div',{class:'small mut'},`📝 Twoje pytanie: ${mq.q}`),
+        h('div',{class:'grid2',style:{marginTop:'6px'}},h('div',{},h('div',{class:'small',style:{color:P[1].color}},'Odpowiedź '+P[1].name),h('div',{class:'big',style:{fontSize:'20px',wordBreak:'break-word'}},t)),
+          h('div',{},h('div',{class:'small',style:{color:P[0].color}},'Poprawna'),h('div',{class:'big',style:{fontSize:'20px',wordBreak:'break-word'}},mq.a))),
+        h('p',{class:'center'},h('span',{class:'chip'},auto?'🎯 Wygląda na trafienie!':'🤔 Nie brzmi tak samo…')),
+        h('p',{class:'small mut center'},'To Twoje pytanie – decydujesz: zaliczasz?'),
+        h('div',{class:'grid2'},h('button',{class:'btn green'+(auto?' sel':''),onclick:()=>verdict(true)},'✓ Zaliczam'),h('button',{class:'btn red'+(auto?'':' sel'),onclick:()=>verdict(false)},'✗ Nie zaliczam')));
+      sfx.pop();if(top.dataset.d)ctx.after(()=>bot.scrollIntoView({behavior:'smooth',block:'nearest'}),150);});
+  }
 }});
 /* ---------- JAKA TO MELODIA – NUCENIE ---------- */
 /* region|dekada|poziom(1-3)|tytuł|wykonawca|aliasy tytułu (po „;”) – tylko tytuły i wykonawcy, bez tekstów */
