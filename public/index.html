@@ -715,7 +715,8 @@ function settings(view){
   const tg=(k,label)=>{const b=h('button',{class:'btn wide '+(SET[k]?'green':'dark'),onclick:()=>{SET[k]=!SET[k];store.set('settings',SET);audioApply();b.className='btn wide '+(SET[k]?'green':'dark');b.textContent=label+': '+(SET[k]?'włączone':'wyłączone');}},label+': '+(SET[k]?'włączone':'wyłączone'));return b;};
   view.append(inputs[0].el,inputs[1].el,
     h('div',{class:'panel col',style:{marginBottom:'12px'}},tg('music','Muzyka w tle'),tg('sound','Dźwięki'),tg('vibe','Wibracje'),tg('tts','Lektor czyta pytania'),
-      h('div',{class:'small mut center'},MIC_OK?'🎤 Mikrofon: rozpoznawanie mowy jest dostępne':'🎤 Ta przeglądarka nie obsługuje rozpoznawania mowy (użyj Chrome lub Safari)')),
+      h('div',{class:'small mut center'},MIC_OK?'🎤 Mikrofon: rozpoznawanie mowy jest dostępne':'🎤 Ta przeglądarka nie obsługuje rozpoznawania mowy (użyj Chrome lub Safari)'),
+      MIC_OK?h('button',{class:'btn teal wide',onclick:micCheck},'🎤 Sprawdź / włącz mikrofon'):null),
     h('div',{class:'col'},
       h('button',{class:'btn gold xl wide',onclick:()=>{P=REALP=[inputs[0].get(),inputs[1].get()];store.set('players',P);applyColors();toast('Zapisano');go('');}},'Zapisz'),
       h('button',{class:'btn dark wide',onclick:()=>{Object.keys(localStorage).filter(k=>k.startsWith('gwd_seen_')).forEach(k=>localStorage.removeItem(k));toast('Pytania przetasowane od nowa');}},'🔀 Zresetuj historię pytań'),
@@ -787,6 +788,23 @@ function choiceRow(options,val,onChange){
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 const MIC_OK=!!SR;
 let _rec=null;
+/* --- uprawnienie do mikrofonu: najpierw getUserMedia (prawdziwe okno „Zezwól” na Androidzie/iPhonie), potem rozpoznawanie mowy --- */
+let MIC_STATE=null,_micInfoShown=false;
+async function micPrep(){if(MIC_STATE==='granted')return true;
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)return true;
+  try{const st=await navigator.mediaDevices.getUserMedia({audio:true});st.getTracks().forEach(t=>t.stop());MIC_STATE='granted';return true;}
+  catch(e){MIC_STATE=(e&&(e.name==='NotAllowedError'||e.name==='SecurityError'))?'denied':'error';return false;}}
+function micDenied(kind,force){if(_micInfoShown&&!force){toast('🎤 Mikrofon niedostępny – możesz pisać');return;}_micInfoShown=true;
+  const ios=/iPhone|iPad|iPod/i.test(navigator.userAgent),svc=kind==='service-not-allowed'||kind==='error';
+  const steps=svc?['Rozpoznawanie mowy w telefonie jest wyłączone albo brak internetu.','Android: upewnij się, że aplikacja „Google” jest włączona (Ustawienia → Aplikacje → Google → Włącz) i że masz internet.','Ustawienia → Zarządzanie ogólne / System → Język i wprowadzanie → Rozpoznawanie mowy → wybierz Google.']
+    :ios?['Ustawienia iPhone’a → Safari → Mikrofon → „Zezwalaj”.','Ustawienia → Prywatność i ochrona → Rozpoznawanie mowy → włącz dla Safari.','Odśwież aplikację i stuknij 🎤 jeszcze raz – pojawi się pytanie o dostęp.']
+    :['W Chrome: stuknij ikonę obok adresu strony (kłódka / suwaki) → Uprawnienia → Mikrofon → Zezwól.','Zainstalowana aplikacja: otwórz Chrome → ⋮ → Ustawienia → Ustawienia witryn → Mikrofon → znajdź naszą stronę na liście „Zablokowane” → Zezwól.','Sprawdź też, czy sam Chrome ma dostęp: Ustawienia telefonu → Aplikacje → Chrome → Uprawnienia → Mikrofon → „Zezwalaj podczas używania aplikacji”.'];
+  modal('🎤 Brak dostępu do mikrofonu',h('div',{},h('p',{class:'mut',style:{marginTop:0}},svc?'Telefon nie pozwala teraz rozpoznawać mowy.':'Telefon zablokował mikrofon dla aplikacji. Tak to naprawisz:'),
+    h('ol',{class:'rules'},steps.map(x=>h('li',{},x))),h('p',{class:'small mut'},'Do tego czasu możesz normalnie wpisywać odpowiedzi ✍️')),
+    [{t:'🎤 Spróbuj ponownie',cls:'gold',fn:()=>{MIC_STATE=null;micPrep().then(ok=>toast(ok?'✅ Mikrofon działa!':'Mikrofon nadal zablokowany'));}},{t:'OK',cls:'dark'}]);}
+async function micCheck(){const ok=await micPrep();if(!ok)return micDenied('not-allowed',true);
+  if(!SR)return toast('Ta przeglądarka nie rozpoznaje mowy – użyj Chrome');
+  toast('🎤 Powiedz coś…');listen(a=>toast('✅ Słyszę: „'+a[0]+'”'),{});}
 /* listen(onResult(alts[]), opts{onEnd,interim(text)}) – nasłuch po polsku, zwraca kilka wariantów rozpoznania */
 function listen(onResult,opts={}){
   if(!SR){toast('Brak obsługi mikrofonu w tej przeglądarce');opts.onEnd&&opts.onEnd();return null;}
@@ -796,9 +814,10 @@ function listen(onResult,opts={}){
   r.onresult=e=>{const res=e.results[e.results.length-1];
     if(!res.isFinal){opts.interim&&opts.interim(res[0].transcript);return;}
     done=true;const alts=[...res].map(a=>a.transcript.trim()).filter(Boolean);onResult(alts);};
-  r.onerror=e=>{if(e.error==='not-allowed'||e.error==='service-not-allowed')toast('Zezwól na dostęp do mikrofonu');else if(e.error==='no-speech')toast('Nic nie usłyszałam – spróbuj jeszcze raz');};
+  r.onerror=e=>{if(e.error==='not-allowed'||e.error==='service-not-allowed')micDenied(e.error);else if(e.error==='no-speech')toast('Nic nie usłyszałam – spróbuj jeszcze raz');};
   r.onend=()=>{_rec=null;opts.onEnd&&opts.onEnd(done);};
-  try{r.start();}catch(e){toast('Nie udało się włączyć mikrofonu');opts.onEnd&&opts.onEnd(false);return null;}
+  micPrep().then(ok=>{if(_rec!==r)return;if(!ok){_rec=null;micDenied(MIC_STATE);opts.onEnd&&opts.onEnd(false);return;}
+    try{r.start();}catch(e){toast('Nie udało się włączyć mikrofonu');opts.onEnd&&opts.onEnd(false);}});
   if(CUR)CUR.onExit(()=>{try{r.abort();}catch(e){}});
   return r;
 }
@@ -3145,7 +3164,7 @@ game({id:'milionerzy',art:'trofeum',cat:'show',icon:'💰',name:'Milionerzy',des
         h('div',{class:'row',style:{marginBottom:'6px'}},h('span',{class:'chip'},'🏁 '+(k+1)+'/12'),cat?h('span',{class:'chip'},cat):null,h('span',{class:'grow'}),h('span',{class:'chip',style:{color:'var(--gold)'}},'💰 '+fmt(val)+' zł'),tu.clk),tu.bar,
         lad,h('div',{class:'lifes'},lb('f','50:50',fifty),lb('ph','📞',phone),lb('au','👥',aud)),
         h('div',{class:'hx q'},h('div',{},qt)),h('div',{class:'col',style:{marginTop:'12px'}},els),bd.el,st));
-      requestAnimationFrame(()=>{const c=lad.querySelector('.cur');c&&c.scrollIntoView({inline:'center',block:'nearest'});});
+      requestAnimationFrame(()=>{const c=lad.querySelector('.cur');c&&(lad.scrollLeft=c.offsetLeft-(lad.clientWidth-c.offsetWidth)/2);});
       if(host.ok())host.q(qt,{pre:host.text(k===0?'mil_q1':k===11?'mil_q_million':'mil_q',{i:0,n:k+1,ord:LK_ORDN[k],amount:HZ(val)}),post:A.map((a,i)=>L[i]+': '+a).join('. ')+'.'});else say(qt);
       if(k===11)host.sfx('tension');
       NET.onPeer('a'+k,()=>{if(!res){bd.set(`🔒 ${P[1].name} już ${isPyniu(1)?'zaznaczyła':'zaznaczył(a)'} odpowiedź!`,'warn');sfx.pop();vibe(20);}});
@@ -3203,7 +3222,7 @@ game({id:'milionerzy',art:'trofeum',cat:'show',icon:'💰',name:'Milionerzy',des
         h('div',{class:'hx q'},h('div',{},q[0])),
         h('div',{class:'col',style:{marginTop:'12px'}},els),
         h('button',{class:'btn dark wide',style:{marginTop:'14px'},onclick:()=>{if(locked)return;modal('Rezygnujesz?',h('p',{class:'center'},'Odchodzisz z kwotą ',h('b',{style:{color:'var(--gold)'}},fmt(lvl?LAD[lvl-1]:0)+' zł')),[{t:'Tak, biorę pieniądze',cls:'gold',fn:()=>{host.line('mil_resign',{i:p,amount:HZ(lvl?LAD[lvl-1]:0)},{pri:3,interrupt:true});host.say('A dobra odpowiedź to: '+L[ans.findIndex(a=>a.ok)]+', '+ans.find(a=>a.ok).t+'.',{pri:3});end(p,lvl?LAD[lvl-1]:0,'Rezygnacja');}},{t:'Gram dalej',cls:'dark'}]);}},'💼 Rezygnuję i biorę pieniądze')));
-      requestAnimationFrame(()=>{const c=lad.querySelector('.cur');c&&c.scrollIntoView({inline:'center',block:'nearest'});});
+      requestAnimationFrame(()=>{const c=lad.querySelector('.cur');c&&(lad.scrollLeft=c.offsetLeft-(lad.clientWidth-c.offsetWidth)/2);});
       function fifty(){const wrong=shuffle(ans.map((a,i)=>i).filter(i=>!ans[i].ok)).slice(0,2);wrong.forEach(i=>{els[i].classList.add('gone');ans[i].gone=1;});sfx.pop();
         host.line('mil_5050',{i:p},{pri:2,interrupt:true});const left=ans.map((a,i)=>i).filter(i=>!ans[i].gone);host.say('Zostają: '+left.map(i=>L[i]+', '+ans[i].t).join(' oraz ')+'.',{pri:2});}
       function phone(){const live=ans.map((a,i)=>i).filter(i=>!ans[i].gone);const ci=ans.findIndex(a=>a.ok);
@@ -3249,6 +3268,8 @@ game({id:'milionerzy',art:'trofeum',cat:'show',icon:'💰',name:'Milionerzy',des
   }
 }});
 
+
+css(`.ladder{position:relative}`);
 /* ---------- 1 z 10 ---------- */
 /* [pytanie, odpowiedź (pokazywana), [inne akceptowane warianty]] */
 const Q10=[
@@ -4849,9 +4870,9 @@ function czHear(onAlts){
   if(!o.on)return o;
   const go1=()=>{if(!o.on||(CUR&&!CUR.alive))return;try{const r=new SR();o.r=r;r.lang='pl-PL';r.interimResults=true;r.continuous=true;r.maxAlternatives=5;
     r.onresult=e=>{for(let i=e.resultIndex;i<e.results.length;i++){const a=[...e.results[i]].map(x=>x.transcript.trim()).filter(Boolean);if(a.length)onAlts(a);}};
-    r.onerror=e=>{if(e.error==='not-allowed'||e.error==='service-not-allowed'){o.on=false;toast('Zezwól na dostęp do mikrofonu');}};
+    r.onerror=e=>{if(e.error==='not-allowed'||e.error==='service-not-allowed'){o.on=false;micDenied(e.error);}};
     r.onend=()=>{o.r=null;if(o.on)setTimeout(go1,200);};r.start();}catch(e){o.on=false;}};
-  go1();if(CUR)CUR.onExit(o.stop);return o;}
+  micPrep().then(ok=>ok?go1():(o.on=false,micDenied(MIC_STATE)));if(CUR)CUR.onExit(o.stop);return o;}
 /* czy w wypowiedzi pada hasło (także w zdaniu, z drobną literówką) */
 function czHit(alts,ans){const a=norm(ans);if(!a)return false;const n=a.split(' ').length;
   return alts.some(t=>{const g=norm(t);if((' '+g+' ').includes(' '+a+' ')||isMatch(t,ans))return true;const ws=g.split(' ');
@@ -9254,9 +9275,9 @@ function sjHear(onFinal,onInt){
   const go1=()=>{if(!o.on||(CUR&&!CUR.alive))return;try{const r=new SR();o.r=r;r.lang='pl-PL';r.interimResults=true;r.continuous=true;r.maxAlternatives=5;
     r.onresult=e=>{if(o.pause)return;for(let i=e.resultIndex;i<e.results.length;i++){const res=e.results[i];
       if(res.isFinal){const a=[...res].map(x=>x.transcript.trim()).filter(Boolean);if(a.length)onFinal(a);}else onInt&&onInt(res[0].transcript);}};
-    r.onerror=e=>{if(e.error==='not-allowed'||e.error==='service-not-allowed'){o.on=false;toast('Zezwól na dostęp do mikrofonu – możesz też pisać');}};
+    r.onerror=e=>{if(e.error==='not-allowed'||e.error==='service-not-allowed'){o.on=false;micDenied(e.error);}};
     r.onend=()=>{o.r=null;if(o.on)setTimeout(go1,150);};r.start();}catch(e){o.on=false;}};
-  go1();if(CUR)CUR.onExit(o.stop);return o;}
+  micPrep().then(ok=>ok?go1():(o.on=false,micDenied(MIC_STATE)));if(CUR)CUR.onExit(o.stop);return o;}
 css(`.sjring{position:relative;width:132px;height:132px;margin:4px auto 2px}.sjring svg{width:100%;height:100%;transform:rotate(-90deg)}
 .sjring circle{fill:none;stroke-width:10}.sjring .bg{stroke:rgba(255,255,255,.14)}.sjring .fg{stroke:var(--pc,#3ddc7e);stroke-linecap:round;transition:stroke .3s}
 .sjring.warn .fg{stroke:#ff5a5f}.sjring b{position:absolute;inset:0;display:grid;place-items:center;font:700 44px Baloo,Nunito;color:#fff;text-shadow:0 2px 6px rgba(0,0,0,.5)}
