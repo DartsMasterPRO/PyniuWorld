@@ -994,11 +994,29 @@ addEventListener('hashchange',olSettingsHook);addEventListener('load',olSettings
    onlineLobby(v, ctx, G, {back, onReady(net)})
    net: isHost, send(type,data), on(type,fn), round(cb(info), optFn) – start partii (host losuje seed i kto zaczyna;
         info={seed,rng,starter(0=ja,1=partner),opt}), again() – rewanż (obie strony muszą kliknąć). */
+/* ---- zapasowy kanał przez serwer (Vercel /api/relay), gdy WebRTC nie może połączyć telefonów ---- */
+const OL_RELAY={ok:null,p:null};
+function olRelayOk(){if(OL_RELAY.p)return OL_RELAY.p;
+  OL_RELAY.p=(!/^https?:$/.test(location.protocol)?Promise.resolve(false):fetch('/api/relay?ping=1',{cache:'no-store'}).then(r=>r.ok).catch(()=>false)).then(ok=>OL_RELAY.ok=ok);return OL_RELAY.p;}
+olRelayOk();
+/* obiekt udający połączenie PeerJS: send / on('data'|'open'|'close') / close */
+function olRelayConn(room,me,persist){const other=me==='h'?'g':'h',L={};let i=0,alive=true,q=[],tm=null,poll=null;
+  const emit=(ev,x)=>(L[ev]||[]).forEach(f=>{try{f(x);}catch(e){console.error(e);}});
+  const c={open:true,relay:true,send(m){if(!alive)return;q.push(m);if(!tm)tm=setTimeout(flush,70);},on(ev,fn){(L[ev]=L[ev]||[]).push(fn);},
+    close(){if(persist)return;if(!alive)return;alive=false;c.open=false;clearTimeout(poll);clearTimeout(tm);emit('close');},kill(){persist=false;c.close();}};
+  async function flush(){tm=null;const b=q;q=[];if(!b.length||!alive)return;
+    try{const r=await fetch('/api/relay',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({r:room,to:other,m:b})});if(!r.ok)throw 0;}
+    catch(e){q=b.concat(q);if(!tm&&alive)tm=setTimeout(flush,1200);}}
+  async function tick(){if(!alive)return;
+    try{const r=await fetch(`/api/relay?r=${room}&me=${me}&i=${i}`,{cache:'no-store'});if(r.ok){const j=await r.json();if(j.n>=i){i=j.n;(j.m||[]).forEach(m=>emit('data',m));}}}catch(e){}
+    if(alive)poll=setTimeout(tick,document.hidden?2500:1000);}
+  tick();return c;}
 function onlineLobby(v,ctx,G,o){
   if(typeof Peer!=='function'){v.innerHTML='';v.append(h('div',{class:'panel center'},h('div',{class:'h1'},'Ups'),h('p',{class:'mut'},'Brak modułu połączeń.')));return;}
   const ver=hid(String(G.run)+'|'+OL_PROTO),sid=Math.random().toString(36).slice(2,10);
   let peer=null,conn=null,live=false,isHost=false,code=null,partnerSid=null,state='idle',ready=false,dead=false,seed=0,lastRx=0,lastPing=0,lastTry=0,lastBr=0,dialC=null,joinTok=0;
   let outN=0,out=[],rin=0;const H={},pend={},SY={};let tOff=0,tRtt=1e9,tN=0,lastTq=0;
+  let relayC=null,relayT=0,lostAt=0;
   let roundCb=null,roundOpt=null,goPend=null,myAgain=false,theirAgain=false,againOv=null,lostOv=null,byeOv=null;
   const chip=h('div',{class:'olchip'});
   const net={get isHost(){return isHost},get code(){return code},get state(){return state},
@@ -1041,7 +1059,11 @@ function onlineLobby(v,ctx,G,o){
       h('div',{class:'col'},h('button',{class:'btn gold xl wide',onclick:host},'✨ Utwórz pokój'),h('button',{class:'btn teal xl wide',onclick:joinUI},'🔑 Mam kod – dołączam')),
       h('p',{class:'small mut',style:{marginTop:'14px'}},'Jedna osoba tworzy pokój i wysyła kod, druga go wpisuje. Oboje musicie mieć internet.'),
       o.back?h('button',{class:'btn ghost sm',onclick:o.back},'← Wróć'):null,olAdvPanel());}
-  function host(){teardown();isHost=true;code=olNewCode();seed=(Math.random()*4294967296)>>>0;state='wait';drawHost();openPeer('kgp-'+code);}
+  function host(){teardown();isHost=true;code=olNewCode();seed=(Math.random()*4294967296)>>>0;state='wait';drawHost();openPeer('kgp-'+code);hostRelay();}
+  function hostRelay(){const my=joinTok,cd=code;olRelayOk().then(ok=>{if(!ok||dead||my!==joinTok||cd!==code)return;
+    fetch('/api/relay',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({r:cd,op:'reset'})}).catch(()=>{}).then(()=>{
+      if(dead||my!==joinTok||cd!==code)return;relayC=olRelayConn(cd,'h',true);attach(relayC);});});}
+  function guestRelay(){if(isHost||relayC||dead)return;const my=joinTok;olRelayOk().then(ok=>{if(!ok||dead||my!==joinTok||relayC)return;relayT=Date.now();relayC=olRelayConn(code,'g',false);attach(relayC);});}
   function drawHost(){const link=location.href.split('#')[0]+'#g-'+G.id+'?room='+code;
     const txt=`Zagrajmy w „${G.name}” w Krainie Gier Pyniu! 💖 Kod pokoju: ${code}`;
     const copy=()=>{const all=txt+'\n'+link;(navigator.clipboard?navigator.clipboard.writeText(all):Promise.reject()).then(()=>toast('Skopiowano zaproszenie 📋')).catch(()=>{modal('Zaproszenie',h('input',{class:'input',value:link,readonly:true,onclick:e=>e.target.select()}),[{t:'OK',cls:'gold'}]);});};
@@ -1049,6 +1071,7 @@ function onlineLobby(v,ctx,G,o){
       h('div',{class:'olcode','aria-label':'Kod pokoju '+code},[...code].map(ch=>h('b',{},ch))),
       h('div',{class:'grid2'},h('button',{class:'btn pink',onclick:()=>{if(navigator.share)navigator.share({title:'Kraina Gier Pyniu',text:txt,url:link}).catch(()=>{});else copy();}},'📤 Wyślij'),
         h('button',{class:'btn dark',onclick:copy},'📋 Kopiuj link')),st,
+      h('p',{class:'small mut',style:{marginTop:'8px'}},'Po wysłaniu zaproszenia wróć tutaj i zostaw ten ekran otwarty, aż partner dołączy ⏳'),
       h('button',{class:'btn ghost sm',style:{marginTop:'10px'},onclick:home},'Anuluj'));
     status('Łączę z serwerem…',true);}
   function joinUI(pre){teardown();state='idle';isHost=false;
@@ -1061,11 +1084,12 @@ function onlineLobby(v,ctx,G,o){
     if(typeof pre!=='string')setTimeout(()=>inp.focus(),80);return inp;}
   function join(c){teardown();isHost=false;code=c;state='dial';const tok=++joinTok;status(`Łączę z pokojem ${c}…`,true);$$('button,input',box).forEach(b=>{if(!/ghost/.test(b.className))b.disabled=true;});
     openPeer(null);
-    ctx.after(()=>{if(tok===joinTok&&state==='dial'&&!dead){lobbyErr(`Nie udało się połączyć z pokojem ${c}. Spróbujcie jeszcze raz – a jeśli dalej nic, dodajcie serwer TURN w „Zaawansowanych”.`);}},20000);}
+    ctx.after(()=>{if(tok===joinTok&&state==='dial'&&!dead){status(`Łączę z pokojem ${c} przez serwer…`,true);guestRelay();}},5000);
+    ctx.after(()=>{if(tok===joinTok&&state==='dial'&&!dead){lobbyErr(`Nie udało się połączyć z pokojem ${c}. Sprawdźcie, czy partner ma otwarty ekran z kodem pokoju, i spróbujcie jeszcze raz.`);}},30000);}
   function lobbyErr(t){if(ready){toast(t);return;}teardown();state='idle';
     const retry=isHost?host:()=>joinUI(code||'');
     frame('😕','Ups!',h('p',{class:'mut'},t),h('div',{class:'col'},h('button',{class:'btn gold wide',onclick:retry},'Spróbuj ponownie'),h('button',{class:'btn dark wide',onclick:home},'Wróć')));}
-  function teardown(){joinTok++;live=false;if(conn){try{conn.close();}catch(e){}conn=null;}if(peer){const p=peer;peer=null;try{p.destroy();}catch(e){}}}
+  function teardown(){joinTok++;live=false;if(relayC){const r=relayC;relayC=null;try{r.kill();}catch(e){}}if(conn){try{conn.close();}catch(e){}conn=null;}if(peer){const p=peer;peer=null;try{p.destroy();}catch(e){}}}
   /* --- PeerJS --- */
   function openPeer(id){if(peer){try{peer.destroy();}catch(e){}}
     let p;try{p=id?new Peer(id,olCfg()):new Peer(olCfg());}catch(e){return lobbyErr('Ta przeglądarka nie obsługuje połączeń WebRTC 😢');}
@@ -1075,6 +1099,8 @@ function onlineLobby(v,ctx,G,o){
     p.on('error',e=>{if(p!==peer||dead)return;const t=e&&e.type;
       if(t==='unavailable-id'&&isHost&&!partnerSid){code=olNewCode();drawHost();return openPeer('kgp-'+code);}
       if(partnerSid)return;                      // w trakcie gry – zajmie się tym ponowne łączenie
+      if(!isHost&&OL_RELAY.ok&&state==='dial'){status(`Łączę z pokojem ${code} przez serwer…`,true);return guestRelay();}
+      if(isHost&&OL_RELAY.ok)return;   // host i tak słucha przez serwer
       if(t==='peer-unavailable')return lobbyErr(`Nie ma pokoju ${code} 🤔 Sprawdź kod albo poproś o nowy.`);
       if(t==='browser-incompatible'||t==='webrtc')return lobbyErr('Ta przeglądarka nie obsługuje połączeń WebRTC 😢');
       if(t==='unavailable-id')return;
@@ -1110,6 +1136,9 @@ function onlineLobby(v,ctx,G,o){
       const me=m.me||{};ONLINE_PEER.name=String(me.name||'Partner').slice(0,14);
       ONLINE_PEER.color=/^#[0-9a-f]{6}$/i.test(me.color||'')?me.color:'#5b8cff';ONLINE_PEER.img=me.pyniu?'pyniu':null;
       if(ONLINE_PEER.color.toLowerCase()===String(P[0].color).toLowerCase())ONLINE_PEER.color=['#3fa9ff','#ff5fa2','#3ddc7e','#a678ff'].find(x=>x!==String(P[0].color).toLowerCase());
+      if(me.pyniu&&P[0].img==='pyniu'){const oi=REALP.findIndex(x=>x.img!=='pyniu');   // oboje jako Pyniu – ten, kto dołączył, gra jako druga osoba
+        if(isHost){ONLINE_PEER.name=oi>=0?REALP[oi].name:'Partner';ONLINE_PEER.img=null;ONLINE_PEER.color=oi>=0?REALP[oi].color:'#5b8cff';}
+        else if(oi>=0){SP=oi;setMode('online');toast('Grasz jako '+REALP[oi].name);}}
       applyColors();state='conn';connected(m.v===ver);return;}
     if(m.ask)sendHello(c,false);
     out.filter(x=>x.n>m.rin).forEach(x=>raw(x,c));
@@ -1122,7 +1151,7 @@ function onlineLobby(v,ctx,G,o){
     ctx.after(()=>{ready=true;o.onReady(net,isHost);},same?1300:3500);}
   function drawChip(){chip.innerHTML='';chip.className='olchip'+(state==='lost'?' lost':'');chip.append(h('i'),avatar(1),h('span',{},state==='lost'?'Rozłączono…':P[1].name));}
   /* --- zerwanie i powrót połączenia --- */
-  function lost(){if(dead||state!=='conn')return;state='lost';live=false;drawChip();vibe(80);
+  function lost(){if(dead||state!=='conn')return;state='lost';lostAt=Date.now();live=false;drawChip();vibe(80);
     if(byeOv)return;
     lostOv=overlay(h('div',{class:'modal'},h('div',{class:'olglobe'},'📡'),h('div',{class:'h1'},'Połączenie przerwane'),
       h('p',{class:'mut'},`Gra wstrzymana. Czekam, aż ${P[1].name} wróci…`),h('div',{class:'olst'},h('span',{class:'olspin'}),h('span',{},'Próbuję połączyć ponownie…')),
@@ -1131,7 +1160,9 @@ function onlineLobby(v,ctx,G,o){
   function recovered(){if(state!=='lost')return;state='conn';live=true;lastRx=Date.now();if(lostOv){lostOv.remove();lostOv=null;}drawChip();toast(`Połączono ponownie z ${P[1].name} 💞`);sfx.good();}
   function reconnectNow(){const now=Date.now();
     if(peer&&!peer.destroyed&&peer.disconnected&&now-lastBr>4000){lastBr=now;try{peer.reconnect();}catch(e){}}
-    if(!isHost&&peer&&peer.open&&now-lastTry>4000){lastTry=now;dial();}}
+    if(!isHost&&peer&&peer.open&&now-lastTry>4000){lastTry=now;dial();}
+    if(!isHost&&OL_RELAY.ok&&(!relayC||!relayC.open)&&now-lostAt>6000){relayC=null;guestRelay();}
+    if(!isHost&&relayC&&relayC.open&&now-lastTry>4000){lastTry=now;sendHello(relayC,true);}}
   function partnerLeft(){if(dead||state==='closed')return;state='closed';live=false;if(lostOv){lostOv.remove();lostOv=null;}if(againOv){againOv.remove();againOv=null;}
     chip.remove();document.body.classList.remove('olon');sfx.bad();
     byeOv=overlay(h('div',{class:'modal'},h('div',{class:'olglobe'},'👋'),h('div',{class:'h1'},'Koniec spotkania'),h('p',{class:'mut'},`${P[1].name} ${isPyniu(1)?'wyszła':'wyszedł/wyszła'} z gry.`),
@@ -1141,16 +1172,17 @@ function onlineLobby(v,ctx,G,o){
       h('div',{class:'olst'},h('span',{class:'olspin'}),h('span',{},`Czekam, aż ${P[1].name} też kliknie „Rewanż!”…`)),
       h('div',{class:'col',style:{marginTop:'14px'}},h('button',{class:'btn dark wide',onclick:()=>go('')},'Menu gier'))),'olov');}
   ctx.every(()=>{if(dead)return;const now=Date.now();
-    if(state==='conn'&&live){if(now-lastPing>=2000){lastPing=now;raw({k:'ping',a:rin});}
-      if(!isHost&&now-lastTq>=(tN<6?1000:10000)){lastTq=now;tN++;raw({k:'tq',t:now});}if(now-lastRx>8000)lost();}
+    if(state==='conn'&&live){const rl=conn&&conn.relay;if(now-lastPing>=(rl?4000:2000)){lastPing=now;raw({k:'ping',a:rin});}
+      if(!isHost&&now-lastTq>=(tN<6?1000:10000)){lastTq=now;tN++;raw({k:'tq',t:now});}if(now-lastRx>(rl?16000:8000))lost();}
     else if(state==='lost')reconnectNow();
-    else if(state==='dial'&&!isHost&&dialC&&dialC.open&&now-lastTry>2500){lastTry=now;sendHello(dialC,true);}   // zgubione „hello” hosta – poproś jeszcze raz
+    else if(state==='dial'&&!isHost&&dialC&&dialC.open&&now-lastTry>2500){lastTry=now;sendHello(dialC,true);}
+    else if(state==='dial'&&!isHost&&relayC&&relayC.open&&now-lastTry>3000){lastTry=now;sendHello(relayC,true);}   // zgubione „hello” hosta – poproś jeszcze raz
     else if(state==='wait'&&peer&&!peer.destroyed&&peer.disconnected&&now-lastBr>4000){lastBr=now;try{peer.reconnect();}catch(e){}}},1000);
   const onVis=()=>{if(!document.hidden&&state==='lost'){lastTry=lastBr=0;reconnectNow();}};
   document.addEventListener('visibilitychange',onVis);
   ctx.onExit(()=>{document.removeEventListener('visibilitychange',onVis);chip.remove();document.body.classList.remove('olon');
     if(!dead&&conn&&state!=='closed')raw({k:'bye'});dead=true;const p=peer,c=conn;peer=null;conn=null;
-    setTimeout(()=>{try{c&&c.close();}catch(e){}try{p&&p.destroy();}catch(e){}},350);});
+    const rc=relayC;relayC=null;setTimeout(()=>{try{c&&c.close();}catch(e){}try{p&&p.destroy();}catch(e){}try{rc&&rc.kill();}catch(e){}},350);});
   window.OL_DBG={drop(){if(conn)try{conn.close();}catch(e){}},get state(){return state}};   /* do testów: symulacja zerwania */
   /* start: link z zaproszeniem → od razu dołączamy */
   if(OL_JOIN&&OL_JOIN.armed&&OL_JOIN.gid===G.id){const c=OL_JOIN.code;OL_JOIN=null;joinUI(c);join(c);}
