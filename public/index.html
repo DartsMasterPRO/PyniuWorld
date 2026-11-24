@@ -1000,16 +1000,17 @@ function olRelayOk(){if(OL_RELAY.p)return OL_RELAY.p;
   OL_RELAY.p=(!/^https?:$/.test(location.protocol)?Promise.resolve(false):fetch('/api/relay?ping=1',{cache:'no-store'}).then(r=>r.ok).catch(()=>false)).then(ok=>OL_RELAY.ok=ok);return OL_RELAY.p;}
 olRelayOk();
 /* obiekt udający połączenie PeerJS: send / on('data'|'open'|'close') / close */
-function olRelayConn(room,me,persist){const other=me==='h'?'g':'h',L={};let i=0,alive=true,q=[],tm=null,poll=null;
+function olRelayConn(room,me,persist){const other=me==='h'?'g':'h',L={};let i=0,alive=true,q=[],tm=null,poll=null,paused=false;
   const emit=(ev,x)=>(L[ev]||[]).forEach(f=>{try{f(x);}catch(e){console.error(e);}});
   const c={open:true,relay:true,send(m){if(!alive)return;q.push(m);if(!tm)tm=setTimeout(flush,70);},on(ev,fn){(L[ev]=L[ev]||[]).push(fn);},
-    close(){if(persist)return;if(!alive)return;alive=false;c.open=false;clearTimeout(poll);clearTimeout(tm);emit('close');},kill(){persist=false;c.close();}};
+    close(){if(persist)return;if(!alive)return;alive=false;c.open=false;clearTimeout(poll);clearTimeout(tm);emit('close');},kill(){persist=false;c.close();},
+    pause(){paused=true;clearTimeout(poll);},resume(){if(!paused||!alive)return;paused=false;clearTimeout(poll);tick();}};
   async function flush(){tm=null;const b=q;q=[];if(!b.length||!alive)return;
     try{const r=await fetch('/api/relay',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({r:room,to:other,m:b})});if(!r.ok)throw 0;}
     catch(e){q=b.concat(q);if(!tm&&alive)tm=setTimeout(flush,1200);}}
   async function tick(){if(!alive)return;
     try{const r=await fetch(`/api/relay?r=${room}&me=${me}&i=${i}`,{cache:'no-store'});if(r.ok){const j=await r.json();if(j.n>=i){i=j.n;(j.m||[]).forEach(m=>emit('data',m));}}}catch(e){}
-    if(alive)poll=setTimeout(tick,document.hidden?2500:1000);}
+    if(alive&&!paused)poll=setTimeout(tick,document.hidden?2500:1000);}
   tick();return c;}
 function onlineLobby(v,ctx,G,o){
   if(typeof Peer!=='function'){v.innerHTML='';v.append(h('div',{class:'panel center'},h('div',{class:'h1'},'Ups'),h('p',{class:'mut'},'Brak modułu połączeń.')));return;}
@@ -1132,6 +1133,7 @@ function onlineLobby(v,ctx,G,o){
     if(partnerSid&&m.sid!==partnerSid){raw({k:'full'},c);setTimeout(()=>{try{c.close();}catch(e){}},800);return;}
     if(conn&&conn!==c){const old=conn;conn=null;try{old.close();}catch(e){}}
     conn=c;live=true;lastRx=Date.now();
+    if(relayC&&isHost){if(c.relay)relayC.resume();else relayC.pause();}
     if(!partnerSid){partnerSid=m.sid;if(!isHost)seed=m.seed;
       const me=m.me||{};ONLINE_PEER.name=String(me.name||'Partner').slice(0,14);
       ONLINE_PEER.color=/^#[0-9a-f]{6}$/i.test(me.color||'')?me.color:'#5b8cff';ONLINE_PEER.img=me.pyniu?'pyniu':null;
@@ -1151,7 +1153,7 @@ function onlineLobby(v,ctx,G,o){
     ctx.after(()=>{ready=true;o.onReady(net,isHost);},same?1300:3500);}
   function drawChip(){chip.innerHTML='';chip.className='olchip'+(state==='lost'?' lost':'');chip.append(h('i'),avatar(1),h('span',{},state==='lost'?'Rozłączono…':P[1].name));}
   /* --- zerwanie i powrót połączenia --- */
-  function lost(){if(dead||state!=='conn')return;state='lost';lostAt=Date.now();live=false;drawChip();vibe(80);
+  function lost(){if(dead||state!=='conn')return;state='lost';lostAt=Date.now();if(relayC&&isHost)relayC.resume();live=false;drawChip();vibe(80);
     if(byeOv)return;
     lostOv=overlay(h('div',{class:'modal'},h('div',{class:'olglobe'},'📡'),h('div',{class:'h1'},'Połączenie przerwane'),
       h('p',{class:'mut'},`Gra wstrzymana. Czekam, aż ${P[1].name} wróci…`),h('div',{class:'olst'},h('span',{class:'olspin'}),h('span',{},'Próbuję połączyć ponownie…')),
